@@ -6,9 +6,7 @@ from torchvision.io import read_image
 import matplotlib.pyplot as plt
 import numpy as np
 
-from config import MODEL_PATH, BATCH_SIZE, EPOCH, STARTING_EPOCH, TRAIN_MODEL_MORE, DEVICE
-
-IMAGES_PATH = 'test_images/image_'
+from config import MODEL_PATH, BATCH_SIZE, EPOCH, STARTING_EPOCH, TRAIN_MODEL_MORE, DEVICE, IMAGES_PATH
 
 class Network(nn.Module):
     def __init__(self):

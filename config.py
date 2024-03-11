@@ -1,6 +1,8 @@
 MODEL_PATH = 'models/model-256px-50k-lstm'
-EPOCH = 39
-SHOW_AUX_POS = 1
+IMAGES_PATH = 'dataset_low_variance/image_'
+
+EPOCH = 29
+SHOW_AUX_POS = 0
 
 DEVICE = 'mps'
 
@@ -12,7 +14,7 @@ STARTING_EPOCH = 0
 GATHER_DATA = True
 
 IMAGE_SIZE = 256
-NO_SAMPLES = 5000
+NO_SAMPLES = 50000
 
 FPS = 240.
 TIME_STEP = 1. / FPS
