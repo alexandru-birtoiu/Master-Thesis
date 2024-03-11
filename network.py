@@ -21,7 +21,7 @@ class Network(nn.Module):
         self.conv6 = nn.Conv2d(192, 256, kernel_size=(3, 3), stride=2, padding=1)
         self.conv7 = nn.Conv2d(256, 256, kernel_size=(3, 3), stride=2, padding=1)
         # self.conv8 = nn.Conv2d(256, 256, kernel_size=(3, 3), stride=2, padding=1)
-        # self.lstm = nn.LSTM(input_size=1031, hidden_size=128, num_layers=1, batch_first=True)
+        self.lstm = nn.LSTM(input_size=1031, hidden_size=128, num_layers=1, batch_first=True)
         self.fc1 = nn.Linear(1031, 256)
         self.fc2 = nn.Linear(256, 12)  # 7 velocities + 2 gripper action + 3 cube positions
 
@@ -40,18 +40,21 @@ class Network(nn.Module):
 
         x = torch.concat((x, positions), dim = 1)
 
-        # lstm_out, (hidden, _) = self.lstm(x)
+        lstm_out, _ = self.lstm(x)
+        print(lstm_out.shape)
         # print(hidden[-1].shape)
         # hidden = hidden[-1]
-        x = torch.relu(self.fc1(x))
-        return self.fc2(x)
-        # return self.fc2(hidden) # Taking the last time step output of LSTM
+        # x = torch.relu(self.fc1(x))
+        # return self.fc2(x)
+        return self.fc2(lstm_out) # Taking the last time step output of LSTM
+
 
 class CustomImageDataset(Dataset):
     def __init__(self, label_file, image_path, device):
         self.labels = torch.load(label_file)
         self.image_path = image_path
         self.device = device
+        print(self.labels)
 
     def __len__(self):
         return len(self.labels.keys())
@@ -86,17 +89,19 @@ def train():
         model.load_state_dict(torch.load(MODEL_PATH + '_' + str(STARTING_EPOCH) + '.pth', map_location=DEVICE))
         model.train()
         starting_epoch = STARTING_EPOCH
-
+    lb = torch.load('sample_labels')
+    print(lb)
     dataset = CustomImageDataset('sample_labels', IMAGES_PATH, device)
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     print(len(dataset))
+    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+
 
     # Define loss function and optimizer
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
     # Training loop
-    num_epochs = 40
+    num_epochs = 15
 
     epoch_losses = []
     batch_losses = []
@@ -133,7 +138,7 @@ def train():
         torch.save(epoch_losses, MODEL_PATH + 'epoch_losses')
 
     plt.plot(range(1, num_epochs + 1), epoch_losses, label='Epoch Loss')
-    fig.savefig('loss_256_50k.png')
+    fig.savefig('loss_256_50k-lstm.png')
     plt.show(block=True)
 
 if __name__ == "__main__":

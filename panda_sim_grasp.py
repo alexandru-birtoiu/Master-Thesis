@@ -151,7 +151,7 @@ class PandaSim(object):
             output = (self.model(input_tensor, positions.unsqueeze(0)).squeeze()).tolist()
 
             if SHOW_AUX_POS:
-                self.show_cube_pos(state[-6:-3], state[-3:])
+                self.show_cube_pos(output[-3:], state[-3:])
 
             self.finger_target = GRIPPER_OPEN if output[7] < output[8] else GRIPPER_CLOSE
             for i in range(PANDA_DOFS):

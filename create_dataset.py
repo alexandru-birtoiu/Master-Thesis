@@ -11,7 +11,7 @@ import time
 from config import TIME_STEP, NO_SAMPLES, GATHER_DATA, IMAGE_SIZE, CAMERA_DISTANCE, CAMERA_YAW, CAMERA_PITCH, \
     CAMERA_TARGET_POSITION
 
-IMAGES_PATH = 'test_images/image_'
+IMAGES_PATH = 'dataset_low/image_'
 
 p.connect(p.GUI)
 
@@ -61,10 +61,10 @@ while sample < NO_SAMPLES:
         else:
             time.sleep(TIME_STEP)
             images.clear()
+        if sample % 1000 == 0:
+            torch.save(sample_dict, 'sample_labels')
     else:
         print(panda.get_state())
-    if sample % 1000 == 0:
-        torch.save(sample_dict, 'sample_labels')
     i += 1
     panda.bullet_client.stopStateLogging(logId)
 
