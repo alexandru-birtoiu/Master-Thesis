@@ -9,9 +9,7 @@ import time
 
 # video requires ffmpeg available in path
 from config import TIME_STEP, NO_SAMPLES, GATHER_DATA, IMAGE_SIZE, CAMERA_DISTANCE, CAMERA_YAW, CAMERA_PITCH, \
-    CAMERA_TARGET_POSITION
-
-IMAGES_PATH = 'test_images/image_'
+    CAMERA_TARGET_POSITION, IMAGES_PATH
 
 p.connect(p.GUI)
 

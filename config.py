@@ -1,6 +1,9 @@
 MODEL_PATH = 'models/model-256px-50k'
+IMAGES_PATH = 'dataset_low_variance/image_'
+
 EPOCH = 29
 SHOW_AUX_POS = 0
+
 
 DEVICE = 'mps'
 
@@ -9,7 +12,7 @@ BATCH_SIZE = 128
 TRAIN_MODEL_MORE = 0
 STARTING_EPOCH = 0
 
-GATHER_DATA = False
+GATHER_DATA = True
 
 IMAGE_SIZE = 256
 NO_SAMPLES = 50000
