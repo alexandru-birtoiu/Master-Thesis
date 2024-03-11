@@ -2,6 +2,8 @@ MODEL_PATH = 'models/model-256px-50k'
 EPOCH = 29
 SHOW_AUX_POS = 0
 
+DEVICE = 'mps'
+
 
 BATCH_SIZE = 128
 TRAIN_MODEL_MORE = 0

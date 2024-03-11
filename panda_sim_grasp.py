@@ -6,7 +6,7 @@ from torchvision.io import read_image
 
 from config import TIME_STEP, GRIPPER_OPEN, GRIPPER_CLOSE, STARTING_JOINT_POSITIONS, MODEL_PATH, PANDA_DOFS, \
     PANDA_END_EFFECTOR_INDEX, LL, UL, JR, RP, MAX_CUBE_RANDOM, MAX_START_RANDOM_XZ, MAX_START_RANDOM_Y, EPOCH, \
-    IMAGE_SIZE, SHOW_AUX_POS
+    IMAGE_SIZE, SHOW_AUX_POS, DEVICE
 from network import Network
 import torch
 from PIL import Image
@@ -76,7 +76,7 @@ class PandaSim(object):
         self.nextPos = []
 
         if use_network:
-            self.device = torch.device('mps')
+            self.device = torch.device(DEVICE)
             self.model = Network().to(self.device)
             self.model.load_state_dict(torch.load(MODEL_PATH + '_' + str(EPOCH) + '.pth'))
             self.model.eval()

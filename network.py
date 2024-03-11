@@ -6,7 +6,7 @@ from torchvision.io import read_image
 import matplotlib.pyplot as plt
 import numpy as np
 
-from config import MODEL_PATH, BATCH_SIZE, EPOCH, STARTING_EPOCH, TRAIN_MODEL_MORE
+from config import MODEL_PATH, BATCH_SIZE, EPOCH, STARTING_EPOCH, TRAIN_MODEL_MORE, DEVICE
 
 IMAGES_PATH = 'test_images/image_'
 
@@ -48,7 +48,7 @@ class Network(nn.Module):
         # return self.fc2(hidden) # Taking the last time step output of LSTM
 
 class CustomImageDataset(Dataset):
-    def __init__(self, label_file, image_path, device=torch.device("cpu")):
+    def __init__(self, label_file, image_path, device):
         self.labels = torch.load(label_file)
         self.image_path = image_path
         self.device = device
@@ -76,18 +76,18 @@ def calculate_loss(criterion, outputs, labels):
 
 
 def train():
-    mps_device = torch.device("mps")
+    device = torch.device(DEVICE)
 
-    model = Network().to(mps_device)
+    model = Network().to(device)
 
     starting_epoch = 0
 
     if TRAIN_MODEL_MORE:
-        model.load_state_dict(torch.load(MODEL_PATH + '_' + str(STARTING_EPOCH) + '.pth', map_location='mps'))
+        model.load_state_dict(torch.load(MODEL_PATH + '_' + str(STARTING_EPOCH) + '.pth', map_location=DEVICE))
         model.train()
         starting_epoch = STARTING_EPOCH
 
-    dataset = CustomImageDataset('sample_labels', IMAGES_PATH, mps_device)
+    dataset = CustomImageDataset('sample_labels', IMAGES_PATH, device)
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     print(len(dataset))
 
