@@ -130,8 +130,8 @@ class PandaSim(object):
         if self.text_id != -1:
             self.bullet_client.removeUserDebugItem(self.text_id)
 
-        self.text_id = self.bullet_client.addUserDebugPoints([cube], [[0, 0, 1]], pointSize=100, lifeTime=0.1)
-        self.text_id = self.bullet_client.addUserDebugPoints([end_effector], [[0, 1, 0.5]], pointSize=100, lifeTime=0.1)
+        self.text_id = self.bullet_client.addUserDebugPoints([cube], [[0, 0, 1]], pointSize=50, lifeTime=0.1)
+        self.text_id = self.bullet_client.addUserDebugPoints([end_effector], [[0, 1, 0.5]], pointSize=20, lifeTime=0.1)
 
     def step_network(self):
         if len(self.images) < 4:
@@ -151,7 +151,7 @@ class PandaSim(object):
             output = (self.model(input_tensor, positions.unsqueeze(0)).squeeze()).tolist()
 
             if SHOW_AUX_POS:
-                self.show_cube_pos(output[-3:], state[-3:])
+                self.show_cube_pos(output[-3:], output[-6:-3])
 
             self.finger_target = GRIPPER_OPEN if output[7] < output[8] else GRIPPER_CLOSE
             for i in range(PANDA_DOFS):

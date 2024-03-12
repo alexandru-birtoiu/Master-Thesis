@@ -5,8 +5,10 @@ from torch.utils.data import DataLoader, Dataset
 from torchvision.io import read_image
 import matplotlib.pyplot as plt
 import numpy as np
+from tqdm import tqdm
 
 from config import MODEL_PATH, BATCH_SIZE, EPOCH, STARTING_EPOCH, TRAIN_MODEL_MORE, DEVICE, IMAGES_PATH
+
 
 class Network(nn.Module):
     def __init__(self):
@@ -20,8 +22,8 @@ class Network(nn.Module):
         self.conv7 = nn.Conv2d(256, 256, kernel_size=(3, 3), stride=2, padding=1)
         # self.conv8 = nn.Conv2d(256, 256, kernel_size=(3, 3), stride=2, padding=1)
         self.lstm = nn.LSTM(input_size=1031, hidden_size=128, num_layers=1, batch_first=True)
-        self.fc1 = nn.Linear(1031, 256)
-        self.fc2 = nn.Linear(256, 12)  # 7 velocities + 2 gripper action + 3 cube positions
+        # self.fc1 = nn.Linear(1031, 256)
+        self.fc2 = nn.Linear(128, 15)  # 7 velocities + 2 gripper action + 3 cube positions + 3 end effector positions
 
     def forward(self, x, positions):
         x = torch.relu(self.conv1(x))
@@ -36,15 +38,13 @@ class Network(nn.Module):
         batch_size, height, width, channels = x.size()
         x = x.view(batch_size, channels * height * width)  # Reshape for LSTM
 
-        x = torch.concat((x, positions), dim = 1)
+        x = torch.concat((x, positions), dim=1)
 
         lstm_out, _ = self.lstm(x)
-        print(lstm_out.shape)
-        # print(hidden[-1].shape)
-        # hidden = hidden[-1]
+
         # x = torch.relu(self.fc1(x))
         # return self.fc2(x)
-        return self.fc2(lstm_out) # Taking the last time step output of LSTM
+        return self.fc2(lstm_out)  # Taking the last time step output of LSTM
 
 
 class CustomImageDataset(Dataset):
@@ -52,7 +52,6 @@ class CustomImageDataset(Dataset):
         self.labels = torch.load(label_file)
         self.image_path = image_path
         self.device = device
-        print(self.labels)
 
     def __len__(self):
         return len(self.labels.keys())
@@ -73,7 +72,8 @@ def calculate_loss(criterion, outputs, labels):
     loss_1 = criterion(outputs[:, :7], labels[:, :7])
     loss_2 = criterion(outputs[:, 7:9], labels[:, 7:9])
     loss_3 = criterion(outputs[:, 9:12], labels[:, 9:12])
-    return loss_1 + loss_2 + loss_3
+    loss_4 = criterion(outputs[:, 12:15], labels[:, 12:15])
+    return loss_1 + loss_2 + loss_3 + loss_4
 
 
 def train():
@@ -87,19 +87,17 @@ def train():
         model.load_state_dict(torch.load(MODEL_PATH + '_' + str(STARTING_EPOCH) + '.pth', map_location=DEVICE))
         model.train()
         starting_epoch = STARTING_EPOCH
-    lb = torch.load('sample_labels')
-    print(lb)
-    dataset = CustomImageDataset('sample_labels', IMAGES_PATH, device)
-    print(len(dataset))
-    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
 
+    dataset = CustomImageDataset('sample_labels', IMAGES_PATH, device)
+    dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
+    print(len(dataset))
 
     # Define loss function and optimizer
     criterion = nn.MSELoss()
     optimizer = optim.Adam(model.parameters(), lr=0.0001)
 
     # Training loop
-    num_epochs = 15
+    num_epochs = 50
 
     epoch_losses = []
     batch_losses = []
@@ -107,37 +105,38 @@ def train():
     fig, ax = plt.subplots()
     ax.set(xlabel='Epoch', ylabel='Loss', title='Loss Curve for epochs')
     plt.yscale('log')
+    with tqdm(total=num_epochs * len(dataloader)) as pbar:
+        for epoch in tqdm(range(num_epochs), leave=False):
+            for i, data in tqdm(enumerate(dataloader, 0), leave=False):
+                inputs, positions, labels = data
 
-    for epoch in range(num_epochs):
-        for i, data in enumerate(dataloader, 0):
-            inputs, positions, labels = data
+                # Zero the parameter gradients
+                optimizer.zero_grad()
+                # Forward pass
+                outputs = model(inputs, positions)
 
-            # Zero the parameter gradients
-            optimizer.zero_grad()
-            # Forward pass
-            outputs = model(inputs, positions)
+                # Calculate loss
+                loss = calculate_loss(criterion, outputs, labels)
 
-            # Calculate loss
-            loss = calculate_loss(criterion, outputs, labels)
+                # Backward pass and optimize
+                loss.backward()
+                optimizer.step()
 
-            # Backward pass and optimize
-            loss.backward()
-            optimizer.step()
+                batch_losses.append(loss.item())
 
-            batch_losses.append(loss.item())
+                pbar.set_description('[%d, %5d] loss: %.8f' %
+                                     (starting_epoch + epoch + 1, i * BATCH_SIZE + 1, np.mean(batch_losses[-10:])))
+                pbar.update(1)
 
-            if i % 10 == 9:  # Print every 10 batches
-                print('[%d, %5d] loss: %.8f' %
-                      (starting_epoch + epoch + 1, i * BATCH_SIZE + 1, np.mean(batch_losses[-10:])))
-
-        epoch_losses.append(np.mean(batch_losses))
-        batch_losses = []  # Reset batch losses
-        torch.save(model.state_dict(), MODEL_PATH + f'_{starting_epoch + epoch + 1}.pth')
-        torch.save(epoch_losses, MODEL_PATH + 'epoch_losses')
+            epoch_losses.append(np.mean(batch_losses))
+            batch_losses = []  # Reset batch losses
+            torch.save(model.state_dict(), MODEL_PATH + f'_{starting_epoch + epoch + 1}.pth')
+            torch.save(epoch_losses, MODEL_PATH + 'epoch_losses')
 
     plt.plot(range(1, num_epochs + 1), epoch_losses, label='Epoch Loss')
     fig.savefig('loss_256_50k-lstm.png')
     plt.show(block=True)
+
 
 if __name__ == "__main__":
     train()

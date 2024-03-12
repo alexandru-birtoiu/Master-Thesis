@@ -62,7 +62,8 @@ while sample < NO_SAMPLES:
         if sample % 1000 == 0:
             torch.save(sample_dict, 'sample_labels')
     else:
-        print(panda.get_state())
+        state, positions = panda.get_state()
+        print(state)
     i += 1
     panda.bullet_client.stopStateLogging(logId)
 
