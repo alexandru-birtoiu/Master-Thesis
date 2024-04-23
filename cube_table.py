@@ -23,17 +23,24 @@ class PandaSim(object):
         self.use_network = use_network
         self.bullet_client = bullet_client
         self.bullet_client.setPhysicsEngineParameter(solverResidualThreshold=0)
-        self.start_position = np.array([0, 0.03, -0.6])
+        self.start_position = np.array([0, 0.03, -0.5])
+
+        self.robot_start = np.array([0, 0.03, -0.3])
 
         flags = self.bullet_client.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
         self.legos = []
 
         self.bullet_client.loadURDF("plane.urdf", self.start_position, [-0.5, -0.5, -0.5, 0.5], flags=flags)
 
+        legoOrientation = self.bullet_client.getQuaternionFromEuler([-1,0,0])
         self.legos.append(
-            self.bullet_client.loadURDF("lego/lego.urdf", np.array([0, 0.05, -0.5]), globalScaling=1.5,
-                                        flags=flags))
+            self.bullet_client.loadURDF("lego/lego.urdf", np.array([0, 0.05, -0.4]), legoOrientation, 
+                                        globalScaling=1.5, flags=flags))
 
+        tableOrientation = self.bullet_client.getQuaternionFromEuler([-math.pi / 2, math.pi / 2, 0])
+        self.table = self.bullet_client.loadURDF("table/table.urdf", np.array([-0.5, 0.0, -0.2]), tableOrientation,
+                                        globalScaling=0.25, flags=flags)
+                                        
         for i, cubeId in enumerate(self.legos):
             self.bullet_client.changeVisualShape(cubeId, -1, rgbaColor=[1, 0, 0, 1])
 
@@ -41,7 +48,7 @@ class PandaSim(object):
 
         self.panda = self.bullet_client.loadURDF("franka_panda/panda.urdf", np.array([0, 0, 0]), orn,
                                                  useFixedBase=True, flags=flags)
-        self.orn = self.bullet_client.getQuaternionFromEuler([math.pi / 2., 0., 0.])
+        self.orn = self.bullet_client.getQuaternionFromEuler([math.pi / 2., math.pi / 2., 0.])
 
         self.state = 0
         self.control_dt = TIME_STEP
@@ -75,6 +82,9 @@ class PandaSim(object):
 
         self.nextPos = []
 
+        self.text_id_cube = -1
+        self.text_id_ee = -1
+
         if use_network:
             self.device = torch.device(DEVICE)
             self.model = Network().to(self.device)
@@ -83,7 +93,7 @@ class PandaSim(object):
             self.images = []
             self.steps = 0
             self.running_steps = 0
-            self.text_id = -1
+            
 
     def get_state(self):
         state = []
@@ -93,7 +103,6 @@ class PandaSim(object):
             state.append(vel)
             positions.append(pos)
 
-        # state += [100 * p for p in self.nextPos]
         state += ([1, 0] if self.state == 6 else [0, 1])
         cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.legos[self.target])
 
@@ -104,34 +113,26 @@ class PandaSim(object):
         state += ee_state[0]
         return state, positions
 
-    def update_state(self):
-        keys = self.bullet_client.getKeyboardEvents()
-        if len(keys) > 0:
-            for k, v in keys.items():
-                if v & self.bullet_client.KEY_WAS_TRIGGERED:
-                    if k == ord('1'):
-                        self.state = 1
-                    if k == ord('2'):
-                        self.state = 2
-                    if k == ord('3'):
-                        self.state = 3
-                    if k == ord('4'):
-                        self.state = 4
-                    if k == ord('5'):
-                        self.state = 5
-                    if k == ord('6'):
-                        self.state = 6
-                    if k == ord('7'):
-                        self.state = 7
-                if v & self.bullet_client.KEY_WAS_RELEASED:
-                    self.state = 0
-
     def show_cube_pos(self, cube, end_effector):
-        if self.text_id != -1:
-            self.bullet_client.removeUserDebugItem(self.text_id)
+        if SHOW_AUX_POS:
+            if self.text_id_cube != -1 and self.text_id_ee != -1:
+                self.bullet_client.removeUserDebugItem(self.text_id_cube)
+                self.bullet_client.removeUserDebugItem(self.text_id_ee)
 
-        self.text_id = self.bullet_client.addUserDebugPoints([cube], [[0, 0, 1]], pointSize=50, lifeTime=0.1)
-        self.text_id = self.bullet_client.addUserDebugPoints([end_effector], [[0, 1, 0.5]], pointSize=20, lifeTime=0.1)
+            self.text_id_cube = self.bullet_client.addUserDebugPoints([cube], [[0, 0, 1]], pointSize=100, lifeTime=0.1)
+            self.text_id_ee = self.bullet_client.addUserDebugPoints([end_effector], [[0, 1, 0.5]], pointSize=25, lifeTime=0.1)
+
+    def move_robot_network(self, output, state):
+        self.show_cube_pos(output[-6:-3], output[-3:])
+
+        self.finger_target = GRIPPER_OPEN if output[7] < output[8] else GRIPPER_CLOSE
+        for i in range(PANDA_DOFS):
+            self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.VELOCITY_CONTROL,
+                                                         targetVelocity=output[i], force=5 * 240.)
+
+        for i in [9, 10]:
+            self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.POSITION_CONTROL,
+                                                         self.finger_target, force=10)
 
     def step_network(self):
         if len(self.images) < 4:
@@ -140,7 +141,8 @@ class PandaSim(object):
             rgbim = Image.fromarray(rgb_buffer)
             self.images.append(transform(rgbim).to(self.device, dtype=torch.float))
             rgbim.save('images/img_' + str(len(self.images) - 1) + '.png')
-        else:
+
+        if len(self.images) == 4:
             # TODO: Investigate why I have to read the images from disk
 
             input_tensor = torch.cat(self.images, dim=0).unsqueeze(0).to(self.device, dtype=torch.float)
@@ -150,18 +152,9 @@ class PandaSim(object):
 
             output = (self.model(input_tensor, positions.unsqueeze(0)).squeeze()).tolist()
 
-            if SHOW_AUX_POS:
-                self.show_cube_pos(output[-3:], output[-6:-3])
+            self.move_robot_network(output, state)
 
-            self.finger_target = GRIPPER_OPEN if output[7] < output[8] else GRIPPER_CLOSE
-            for i in range(PANDA_DOFS):
-                self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.VELOCITY_CONTROL,
-                                                         targetVelocity=output[i], force=5 * 240.)
-
-            for i in [9, 10]:
-                self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.POSITION_CONTROL,
-                                                         self.finger_target, force=10)
-            self.images.clear()
+            self.images = self.images[1:]
             self.running_steps = 0
 
     def step(self):
@@ -172,24 +165,32 @@ class PandaSim(object):
                 # if self.running_steps > 5:
                 self.step_network()
             return
+
         if self.state == 6:
             self.finger_target = GRIPPER_CLOSE
         if self.state == 5:
             self.finger_target = GRIPPER_OPEN
+
         self.update_state()
-        alpha = 0.9  # 0.99
-        if self.state == 1 or self.state == 2 or self.state == 3 or self.state == 4 or self.state == 7 or self.state == 8:
+        alpha = 0.9
+
+        state, _ = self.get_state()
+        self.show_cube_pos(state[-6:-3], state[-3:])
+
+        # if self.state == 10:
+        #     _, p = self.get_state()
+        #     print(p)
+
+
+
+        if self.state == 3 or self.state == 4 or self.state == 7 or self.state == 8:
 
             self.gripper_height = alpha * self.gripper_height + (1. - alpha) * 0.03
-            if self.state == 2 or self.state == 3 or self.state == 7 or self.state == 8:
+            if self.state == 3 or self.state == 7 or self.state == 8:
                 self.gripper_height = alpha * self.gripper_height + (1. - alpha) * 0.2
 
-            t = self.t
             self.t += self.control_dt
 
-            pos = [self.start_position[0] + 0.2 * math.sin(1.5 * t),
-                   self.start_position[1] + self.gripper_height,
-                   self.start_position[2] + 0.1 * math.cos(1.5 * t)]
 
             if self.state == 3 or self.state == 4:
                 pos, _ = self.bullet_client.getBasePositionAndOrientation(self.legos[self.target])
@@ -200,31 +201,34 @@ class PandaSim(object):
                 self.randz = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM)
 
                 self.rand_start = np.array([np.random.uniform(-MAX_START_RANDOM_XZ, MAX_START_RANDOM_XZ),
-                                           np.random.uniform(self.prev_pos[1], self.prev_pos[1] + MAX_START_RANDOM_Y),
+                                           np.random.uniform(self.prev_pos[1], MAX_START_RANDOM_Y),
                                            np.random.uniform(-MAX_START_RANDOM_XZ, MAX_START_RANDOM_XZ)])
+
+            # GO TO RANDOM CUBE POSITION FOR NEXT MOVE
 
             if self.state == 7:
                 pos = self.prev_pos
-                diff = pos - (self.start_position + self.rand_start)
+                diff = pos - (self.robot_start + self.rand_start)
 
                 self.prev_pos = [self.prev_pos[0] - diff[0] * 0.1,
                                  self.rand_start[1],
                                  self.prev_pos[2] - diff[2] * 0.1]
-
+        
+            # GO BACK TO RANDOM STARTING POSITION
             if self.state == 8:
                 pos = self.prev_pos
                 diffX = pos[0] - (self.start_position[0] + self.randx)
                 diffZ = pos[2] - (self.start_position[2] + self.randz)
                 self.prev_pos = [self.prev_pos[0] - diffX * 0.1, self.prev_pos[1], self.prev_pos[2] - diffZ * 0.1]
 
-            self.nextPos = pos
+
             jointPoses = self.bullet_client.calculateInverseKinematics(self.panda, PANDA_END_EFFECTOR_INDEX, pos,
                                                                        self.orn,
                                                                        LL, UL, JR, RP, maxNumIterations=20)
 
             for i in range(PANDA_DOFS):
                 self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.POSITION_CONTROL,
-                                                         jointPoses[i], force=5 * 240.)
+                                                         jointPoses[i], force= 5 * 240.)
             # target for fingers
         for i in [9, 10]:
             self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.POSITION_CONTROL,
@@ -237,7 +241,7 @@ class PandaSimAuto(PandaSim):
         self.state_t = 0
         self.cur_state = 0
         self.states = [0, 3, 5, 4, 6, 3, 8, 5, 7]
-        self.state_durations = [0.2, 0.05, 0.1, 0.1, 0.1, 0.05, 0.5, 0.1, 0.5]
+        self.state_durations = [0.2, 0.05, 0.1, 0.1, 0.1, 0.2, 0.5, 0.1, 0.5]
         self.target = 0
 
     def is_done(self):

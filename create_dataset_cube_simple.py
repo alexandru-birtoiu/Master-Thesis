@@ -1,7 +1,7 @@
 import pybullet as p
 import pybullet_data as pd
 
-import panda_sim_grasp as panda_sim
+import cube_simple as panda_sim
 from PIL import Image
 import torch
 from tqdm import tqdm
@@ -39,15 +39,17 @@ while sample < NO_SAMPLES:
     p.stepSimulation()
     if GATHER_DATA:
         if panda.is_moving():
+
             if len(images) < 4:
                 img = p.getCameraImage(IMAGE_SIZE, IMAGE_SIZE, renderer=p.ER_BULLET_HARDWARE_OPENGL)
                 rgbBuffer = img[2]
                 rgbim = Image.fromarray(rgbBuffer)
                 images.append(rgbim)
-            else:
+
+            if len(images) == 4:
                 for idx, img in enumerate(images):
                     img.save(IMAGES_PATH + str(sample) + '_' + str(idx) + '.png')
-                images.clear()
+                images = images[1:]
                 i = 0
                 labels, positions = panda.get_state()
                 sample_dict[sample] = {}
@@ -59,11 +61,11 @@ while sample < NO_SAMPLES:
         else:
             time.sleep(TIME_STEP)
             images.clear()
-        if sample % 1000 == 0:
+        if sample % 5000 == 0:
             torch.save(sample_dict, 'sample_labels')
     else:
         state, positions = panda.get_state()
-        print(state)
+        print(positions)
     i += 1
     panda.bullet_client.stopStateLogging(logId)
 

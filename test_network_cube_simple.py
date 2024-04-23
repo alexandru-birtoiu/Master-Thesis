@@ -1,7 +1,7 @@
 import pybullet as p
 import pybullet_data as pd
 import time
-import panda_sim_grasp as panda_sim
+import cube_simple as panda_sim
 from config import TIME_STEP, CAMERA_DISTANCE, CAMERA_YAW, CAMERA_PITCH, CAMERA_TARGET_POSITION
 
 p.connect(p.GUI)
