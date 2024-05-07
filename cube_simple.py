@@ -36,6 +36,7 @@ class PandaSim(object):
         self.legos.append(
             self.bullet_client.loadURDF("lego/lego.urdf", np.array([0, 0.05, -0.4]), legoOrientation, 
                                         globalScaling=1.5, flags=flags))
+
                                         
         for i, cubeId in enumerate(self.legos):
             self.bullet_client.changeVisualShape(cubeId, -1, rgbaColor=[1, 0, 0, 1])

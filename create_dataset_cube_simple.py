@@ -1,7 +1,7 @@
 import pybullet as p
 import pybullet_data as pd
 
-import cube_simple as panda_sim
+import cube_table as panda_sim
 from PIL import Image
 import torch
 from tqdm import tqdm
@@ -9,7 +9,7 @@ import time
 
 # video requires ffmpeg available in path
 from config import TIME_STEP, NO_SAMPLES, GATHER_DATA, IMAGE_SIZE, CAMERA_DISTANCE, CAMERA_YAW, CAMERA_PITCH, \
-    CAMERA_TARGET_POSITION, IMAGES_PATH
+    CAMERA_TARGET_POSITION, IMAGES_PATH, GATHER_DATA_MORE, STARTING_SAMPLES, SAMPLE_LABEL_PATH
 
 p.connect(p.GUI)
 
@@ -29,12 +29,20 @@ panda.control_dt = TIME_STEP
 logId = panda.bullet_client.startStateLogging(panda.bullet_client.STATE_LOGGING_PROFILE_TIMINGS, "log.json")
 
 images = []
+
 sample = 0
 sample_dict = {}
+no_samples = NO_SAMPLES
+
+if GATHER_DATA_MORE:
+    sample = STARTING_SAMPLES
+    no_samples += sample
+    sample_dict = torch.load(SAMPLE_LABEL_PATH)
+
 i = 0
 
 pbar = tqdm(total=NO_SAMPLES)
-while sample < NO_SAMPLES:
+while sample < no_samples:
     panda.step()
     p.stepSimulation()
     if GATHER_DATA:
@@ -62,12 +70,12 @@ while sample < NO_SAMPLES:
             time.sleep(TIME_STEP)
             images.clear()
         if sample % 5000 == 0:
-            torch.save(sample_dict, 'sample_labels')
+            torch.save(sample_dict, SAMPLE_LABEL_PATH)
     else:
         state, positions = panda.get_state()
         print(positions)
     i += 1
     panda.bullet_client.stopStateLogging(logId)
 
-torch.save(sample_dict, 'sample_labels')
+torch.save(sample_dict, SAMPLE_LABEL_PATH)
 

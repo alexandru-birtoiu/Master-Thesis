@@ -7,7 +7,7 @@ import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
 
-from config import EPOCH_LOSSES_PATH, LEARNING_RATE, MODEL_PATH, BATCH_SIZE, IMAGE_SIZE, STARTING_EPOCH, TRAIN_MODEL_MORE, DEVICE, IMAGES_PATH, USE_LSTM, NO_SAMPLES, EPOCHS_TO_TRAIN
+from config import EPOCH_LOSSES_PATH, LEARNING_RATE, MODEL_PATH, BATCH_SIZE, IMAGE_SIZE, STARTING_EPOCH, TRAIN_MODEL_MORE, DEVICE, IMAGES_PATH, USE_LSTM, SAMPLE_LABEL_PATH, EPOCHS_TO_TRAIN
 
 
 class Network(nn.Module):
@@ -96,7 +96,7 @@ def train():
         epoch_losses = torch.load(EPOCH_LOSSES_PATH)[:starting_epoch]
         
 
-    dataset = CustomImageDataset('sample_labels', IMAGES_PATH, device)
+    dataset = CustomImageDataset(SAMPLE_LABEL_PATH, IMAGES_PATH, device)
     dataloader = DataLoader(dataset, batch_size=BATCH_SIZE, shuffle=True, num_workers=0)
     print(len(dataset))
 
