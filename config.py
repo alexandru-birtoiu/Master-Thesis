@@ -1,25 +1,38 @@
-EPOCH = 20
+from enum import Enum
+
+class ModelType(Enum):
+    EGOCENTRIC = 1
+    BIRDSEYE = 2
+    BIRDSEYE_DOUBLE = 3
+    EGO_AND_BIRDSEYE = 4
+
+EPOCH = 10
+MODEL_TYPE = ModelType.EGOCENTRIC
+
 SHOW_AUX_POS = 0
 
 DEVICE = 'mps'
 
-TRAIN_MODEL_MORE = 1
-STARTING_EPOCH = 2
-EPOCHS_TO_TRAIN = 18
+TRAIN_MODEL_MORE = 0
+STARTING_EPOCH = 0
+EPOCHS_TO_TRAIN = 10
 
-LEARNING_RATE = 0.0001
+LEARNING_RATE = 0.0002
 BATCH_SIZE = 128
 USE_LSTM = 1
+LSTM_LAYERS = 2
 
 GATHER_DATA = True
 GATHER_DATA_MORE = 0
-STARTING_SAMPLES = 0
+STARTING_EPISODES = 0
 
+NO_EPISODES = 100
 IMAGE_SIZE = 128
-NO_SAMPLES = 200000
 
 FPS = 240.
 TIME_STEP = 1. / FPS
+
+WAIT_TIME_DROP_LAST = 0.25
 WAIT_TIME_DROP = 0.2
 WAIT_TIME_OTHER = 0.1
 REACHED_TARGET_THRESHOLD = 0.01
@@ -44,23 +57,41 @@ LL = [-7] * PANDA_DOFS
 UL = [7] * PANDA_DOFS
 JR = [7] * PANDA_DOFS
 
-STARTING_JOINT_POSITIONS = [1.512, -0.228, 0.065, -2.875, 0.030, 2.647, 0.8, 0.02, 0.02]
+STARTING_JOINT_POSITIONS = [1.678, -0.533, -0.047, -2.741, -0.029, 2.207, 0.869, 0.02, 0.02]
 RP = STARTING_JOINT_POSITIONS
 
-MODEL_PATH = 'models/model-' + str(IMAGE_SIZE) + 'px-' + str(int(NO_SAMPLES / 1000)) + 'k' + ('-lstm' if USE_LSTM else '')
-IMAGES_PATH = 'images_cube_table/image_'
+MODEL_PATH = 'models/model_' + str(MODEL_TYPE.name)+ '-' + str(IMAGE_SIZE) + 'px_' + str(NO_EPISODES) + '_episodes' + ('_lstm_' + str(LSTM_LAYERS) + 'layers' if USE_LSTM else '')
 EPOCH_LOSSES_PATH = MODEL_PATH + '_epoch_losses'
-SAMPLE_LABEL_PATH = 'labels/sample_labels-' + str(IMAGE_SIZE) + 'px-' + str(int(NO_SAMPLES / 1000)) + 'k'
+VALIDATION_LOSSES_PATH = MODEL_PATH + '_validation_losses'
+DETAILS_PATH = MODEL_PATH + '_details'
 
-#TO DO add sample_labels PATH
-
-NO_CAMERAS = 3
+IMAGES_PATH = 'images/'
+SAMPLE_LABEL_PATH = 'labels/sample_labels_' + str(IMAGE_SIZE) + 'px_' + str(NO_EPISODES) + '_episodes'
+GATHER_MORE_LABEL_PATH = 'labels/sample_labels_' + str(IMAGE_SIZE) + 'px_' + str(STARTING_EPISODES) + '_episodes'
+SAVING_LABEL_PATH = 'labels/sample_labels_' + str(IMAGE_SIZE) + 'px_' + str(STARTING_EPISODES + NO_EPISODES if GATHER_DATA_MORE else NO_EPISODES) + '_episodes'
 
 CAMERA_POSITIONS = {
-    "camera_1": {
-        "distance": 0,
+    "cam1": {
+        "distance": 1.1,
         "yaw": 0,
-        "pitch": 0,
-        "target_positon": 0,
+        "pitch": -30,
+        "roll": 0,
+        "target_position": [0, 0, 0],
+    },
+    "cam2": {
+        "distance": 1.1,
+        "yaw": 90,
+        "pitch": -40,
+        "roll": 0,
+        "target_position": [0, 0, -0.4],
     }
 }
+
+CAMERA_SETUPS = {
+    1: ["ego"],
+    2: ["cam1"],
+    3: ["cam1", "cam2"],
+    4: ["cam1", "ego"]
+}
+
+ACTIVE_CAMERAS = CAMERA_SETUPS[MODEL_TYPE.value]

@@ -6,10 +6,7 @@ from PIL import Image
 import torch
 from tqdm import tqdm
 import time
-
-# video requires ffmpeg available in path
-from config import TIME_STEP, NO_SAMPLES, GATHER_DATA, IMAGE_SIZE, CAMERA_DISTANCE, CAMERA_YAW, CAMERA_PITCH, \
-    CAMERA_TARGET_POSITION, IMAGES_PATH, GATHER_DATA_MORE, STARTING_SAMPLES, SAMPLE_LABEL_PATH
+from config import *
 
 p.connect(p.GUI)
 
@@ -30,52 +27,57 @@ logId = panda.bullet_client.startStateLogging(panda.bullet_client.STATE_LOGGING_
 
 images = []
 
-sample = 0
+episode = 0
 sample_dict = {}
-no_samples = NO_SAMPLES
+no_episodes = NO_EPISODES
 
 if GATHER_DATA_MORE:
-    sample = STARTING_SAMPLES
-    no_samples += sample
-    sample_dict = torch.load(SAMPLE_LABEL_PATH)
+    sample_dict = torch.load(GATHER_MORE_LABEL_PATH)
 
-i = 0
+    panda.episode = STARTING_EPISODES
+    episode = STARTING_EPISODES
 
-pbar = tqdm(total=NO_SAMPLES)
-while sample < no_samples:
+    no_episodes += STARTING_EPISODES
+    
+    print('Previous number of episodes: ' + str(len(sample_dict.keys()) - 1))
+
+sample_dict[episode] = {}
+
+pbar = tqdm(total=NO_EPISODES)
+while episode < no_episodes:
     panda.step()
     p.stepSimulation()
     if GATHER_DATA:
         if panda.is_moving():
+            sample_per_episode = panda.capture_images()
 
-            if len(images) < 4:
-                img = p.getCameraImage(IMAGE_SIZE, IMAGE_SIZE, renderer=p.ER_BULLET_HARDWARE_OPENGL)
-                rgbBuffer = img[2]
-                rgbim = Image.fromarray(rgbBuffer)
-                images.append(rgbim)
+            current_episode = panda.get_episode()
 
-            if len(images) == 4:
-                for idx, img in enumerate(images):
-                    img.save(IMAGES_PATH + str(sample) + '_' + str(idx) + '.png')
-                images = images[1:]
-                i = 0
-                labels, positions = panda.get_state()
-                sample_dict[sample] = {}
-                sample_dict[sample]["labels"] = labels
-                sample_dict[sample]["positions"] = positions
-
-                sample += 1
+            if current_episode not in sample_dict:
                 pbar.update(1)
+                sample_dict[current_episode] = {}
+
+            episode = current_episode
+           
+            if sample_per_episode == -1:
+                continue
+
+            labels, positions = panda.get_state()
+        
+            sample_dict[current_episode][sample_per_episode] = {
+                "labels": labels,
+                "positions": positions
+            }
+            
         else:
             time.sleep(TIME_STEP)
-            images.clear()
-        if sample % 5000 == 0:
-            torch.save(sample_dict, SAMPLE_LABEL_PATH)
+        if episode % 20 == 0:
+            torch.save(sample_dict, SAVING_LABEL_PATH)
     else:
         state, positions = panda.get_state()
-        print(positions)
-    i += 1
+        # print(panda.state.name + str(panda.is_moving()))
+        
     panda.bullet_client.stopStateLogging(logId)
 
-torch.save(sample_dict, SAMPLE_LABEL_PATH)
+torch.save(sample_dict, SAVING_LABEL_PATH)
 
