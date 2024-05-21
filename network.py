@@ -34,8 +34,9 @@ class ImageLayer(nn.Module):
         # x = torch.relu(self.conv7(x))
         # x = torch.relu(self.conv8(x))
 
-        batch_size, height, width, channels = x.size()
-        x = x.view(batch_size, channels * height * width)  # Reshape for LSTM
+        batch_size, features, height, width = x.size()
+        # print(x.shape)
+        x = x.view(batch_size, features * height * width)  # Reshape for LSTM
         return x
 
 class Network(nn.Module):

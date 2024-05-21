@@ -13,7 +13,7 @@ class TaskType(Enum):
     # Add other tasks as needed
 
 # General configurations
-EPOCH: int = 4
+EPOCH: int = 10
 MODEL_TYPE: ModelType = ModelType.BIRDSEYE
 TASK_TYPE: TaskType = TaskType.CUBE_TABLE
 
@@ -25,7 +25,7 @@ TRAIN_MODEL_MORE: int = 0
 STARTING_EPOCH: int = 0
 EPOCHS_TO_TRAIN: int = 10
 
-USE_LSTM: int = True
+USE_LSTM: int = False
 LSTM_LAYERS: int = 1
 
 LEARNING_RATE: float = 0.0002
@@ -33,12 +33,13 @@ BATCH_SIZE: int = 64
 SCHEDULER_STEP_SIZE: int = 3
 
 
-
 # Data gathering configurations
+
+NO_EPISODES: int = 1000
 GATHER_DATA: bool = True
 GATHER_DATA_MORE: int = False
 STARTING_EPISODES: int = 0
-NO_EPISODES: int = 100
+
 
 # Image configurations
 IMAGE_SIZE: int = 128
@@ -59,7 +60,7 @@ CAMERA_PITCH: int = -30
 CAMERA_TARGET_POSITION: list[float] = [0, 0, 0]
 
 # Randomization parameters
-MAX_CUBE_RANDOM: float = 0.10
+MAX_CUBE_RANDOM: float = 0.15
 MAX_START_RANDOM_XZ: float = 0.01
 MAX_START_RANDOM_Y: float = 0.01
 
