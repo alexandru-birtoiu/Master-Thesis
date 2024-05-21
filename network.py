@@ -9,9 +9,7 @@ from tqdm import tqdm
 from utils import get_image_path
 import math
 
-from config import ACTIVE_CAMERAS, DETAILS_PATH, LEARNING_RATE, MODEL_PATH, BATCH_SIZE, \
-    IMAGE_SIZE, STARTING_EPOCH, TRAIN_MODEL_MORE, DEVICE, USE_LSTM, SAMPLE_LABEL_PATH, EPOCHS_TO_TRAIN, \
-    LSTM_LAYERS, EPOCH_LOSSES_PATH, VALIDATION_LOSSES_PATH
+from config import *
 
 class ImageLayer(nn.Module):
     def __init__(self):
@@ -60,9 +58,11 @@ class Network(nn.Module):
         output = torch.tensor([], device=self.device)
         for idx, input in enumerate(x):
             input = self.conv_layers[idx](input)
+
             output = torch.cat((output, input), dim = 1)
 
         x = torch.concat((output, positions), dim=1)
+    
 
         if USE_LSTM: 
             lstm_out, _ = self.lstm(x)
@@ -75,59 +75,51 @@ class EpisodeBatchSampler(Sampler):
     def __init__(self, label_file, batch_size, split=0.85, train=True, random=False):
         self.labels = torch.load(label_file)
         self.batch_size = batch_size
+        self.train = train
         self.random = random
+
+        # Splitting the episodes into training and validation sets
+        episodes = list(self.labels.keys())
+        split_idx = int(len(episodes) * split)
         
-        # keys_to_keep = list(self.labels.keys())[:5000]
-        # self.labels = {k: self.labels[k] for k in keys_to_keep}
-
-        self.episode_indices = {}
-        for i, item in self.labels.items():
-            episode = item['episode']  
-            if episode not in self.episode_indices:
-                self.episode_indices[episode] = []
-            self.episode_indices[episode].append(i)
-
-        self.episodes = list(self.episode_indices.keys())
-        split_episodes = int(len(self.episodes) * split)
         if train:
-            self.episodes = self.episodes[:split_episodes]
+            self.episodes = episodes[:split_idx]
         else:
-            self.episodes = self.episodes[split_episodes:]
+            self.episodes = episodes[split_idx:]
 
-        self.length = 0
-        b = 1
-        for episode in self.episodes:
-            indices = self.episode_indices[episode]
-            for idx in indices:
-                b += 1
-                if b == self.batch_size:
-                    self.length += 1
-                    b = 0
-            if b > 0:
-                self.length += 1
-        
+        # Map (episode, sample) pairs to dataset indices
+        self.dataset_indices = self._create_dataset_indices()
         self.shuffle_episodes()
 
     def shuffle_episodes(self):
-        print(len(self.episodes))
-        self.episodes = np.random.permutation(self.episodes)
+        np.random.shuffle(self.episodes)
+
+    def _create_dataset_indices(self):
+        episode_sample_pairs = [
+            (episode, sample) for episode, samples in self.labels.items() for sample in samples.keys()
+        ]
+        return {pair: idx for idx, pair in enumerate(episode_sample_pairs)}
 
     def __iter__(self):
         batch = []
         for episode in self.episodes:
-            indices = self.episode_indices[episode]
+            samples = list(self.labels[episode].keys())
             if self.random:
-                indices = np.random.permutation(indices)
-            for idx in indices:
+                np.random.shuffle(samples)
+            for sample in samples:
+                idx = self.dataset_indices[(episode, sample)]
                 batch.append(idx)
                 if len(batch) == self.batch_size:
                     yield batch
                     batch = []
             if len(batch) > 0:
                 yield batch
+                batch = []
 
     def __len__(self):
-        return self.length
+        total_samples = sum(math.ceil(len(list(self.labels[episode].keys())) / self.batch_size) \
+                             for episode in self.episodes)
+        return total_samples
 
 
 class CustomImageDataset(Dataset):
@@ -179,7 +171,7 @@ def train():
     validation_losses = []
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=5, gamma=0.5)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=SCHEDULER_STEP_SIZE, gamma=0.5)
 
     if TRAIN_MODEL_MORE:
         model.load_state_dict(torch.load(MODEL_PATH + '_' + str(STARTING_EPOCH) + '.pth', map_location=DEVICE))
@@ -200,12 +192,9 @@ def train():
 
     valid_sampler = EpisodeBatchSampler(SAMPLE_LABEL_PATH, batch_size=BATCH_SIZE, train=False)
     valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=0)
-    print(len(dataset))
 
     # Define loss function and optimizer
     criterion = nn.MSELoss()
-
-
     
 
     fig, ax = plt.subplots()
@@ -235,6 +224,7 @@ def train():
                 batch_losses.append(loss.item())
 
                 sample += labels.shape[0]
+
                 pbar.set_description('[%d, %5d] loss: %.8f' %
                                      (display_epoch, sample, np.mean(batch_losses[-1])))
                 pbar.update(1)
@@ -280,7 +270,7 @@ def train():
 
     plt.plot(range(1, starting_epoch + EPOCHS_TO_TRAIN + 1), epoch_losses, label='Epoch Loss')
     plt.plot(range(1, starting_epoch + EPOCHS_TO_TRAIN + 1), validation_losses, label='Validation Epoch Loss')
-    fig.savefig('loss_figs/loss_' + MODEL_PATH.split('/')[1] +'.png')
+    fig.savefig('loss_figs/loss_' + MODEL_PATH.split('/')[1]  + "_" + MODEL_PATH.split('/')[2] +'.png')
     plt.show(block=True)
 
 

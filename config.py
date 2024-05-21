@@ -1,76 +1,102 @@
 from enum import Enum
+import numpy as np
 
+# Enums for model and task types
 class ModelType(Enum):
     EGOCENTRIC = 1
     BIRDSEYE = 2
     BIRDSEYE_DOUBLE = 3
     EGO_AND_BIRDSEYE = 4
 
-EPOCH = 10
-MODEL_TYPE = ModelType.EGOCENTRIC
+class TaskType(Enum):
+    CUBE_TABLE = 1
+    # Add other tasks as needed
 
-SHOW_AUX_POS = 0
+# General configurations
+EPOCH: int = 4
+MODEL_TYPE: ModelType = ModelType.BIRDSEYE
+TASK_TYPE: TaskType = TaskType.CUBE_TABLE
 
-DEVICE = 'mps'
+SHOW_AUX_POS: int = 1
+DEVICE: str = 'mps'
 
-TRAIN_MODEL_MORE = 0
-STARTING_EPOCH = 0
-EPOCHS_TO_TRAIN = 10
+# Training configurations
+TRAIN_MODEL_MORE: int = 0
+STARTING_EPOCH: int = 0
+EPOCHS_TO_TRAIN: int = 10
 
-LEARNING_RATE = 0.0002
-BATCH_SIZE = 128
-USE_LSTM = 1
-LSTM_LAYERS = 2
+USE_LSTM: int = True
+LSTM_LAYERS: int = 1
 
-GATHER_DATA = True
-GATHER_DATA_MORE = 0
-STARTING_EPISODES = 0
+LEARNING_RATE: float = 0.0002
+BATCH_SIZE: int = 64
+SCHEDULER_STEP_SIZE: int = 3
 
-NO_EPISODES = 100
-IMAGE_SIZE = 128
 
-FPS = 240.
-TIME_STEP = 1. / FPS
 
-WAIT_TIME_DROP_LAST = 0.25
-WAIT_TIME_DROP = 0.2
-WAIT_TIME_OTHER = 0.1
-REACHED_TARGET_THRESHOLD = 0.01
-ROBOT_SPEED = 0.1
+# Data gathering configurations
+GATHER_DATA: bool = True
+GATHER_DATA_MORE: int = False
+STARTING_EPISODES: int = 0
+NO_EPISODES: int = 100
 
-CAMERA_DISTANCE = 1.1
-CAMERA_YAW = 0
-CAMERA_PITCH = -30
-CAMERA_TARGET_POSITION = [0, 0, 0]
+# Image configurations
+IMAGE_SIZE: int = 128
 
-MAX_CUBE_RANDOM = 0.15
-MAX_START_RANDOM_XZ = 0.03
-MAX_START_RANDOM_Y = 0.05
+# Simulation parameters
+FPS: float = 240.0
+TIME_STEP: float = 1.0 / FPS
 
-GRIPPER_OPEN = 0.04
-GRIPPER_CLOSE = 0.0
+WAIT_TIME_DROP: float = 0.25
+WAIT_TIME_OTHER: float = 0.1
+REACHED_TARGET_THRESHOLD: float = 0.01
+ROBOT_SPEED: float = 0.1
 
-PANDA_END_EFFECTOR_INDEX = 11
-PANDA_DOFS = 7
+# Camera configurations
+CAMERA_DISTANCE: float = 1.1
+CAMERA_YAW: int = 0
+CAMERA_PITCH: int = -30
+CAMERA_TARGET_POSITION: list[float] = [0, 0, 0]
 
-LL = [-7] * PANDA_DOFS
-UL = [7] * PANDA_DOFS
-JR = [7] * PANDA_DOFS
+# Randomization parameters
+MAX_CUBE_RANDOM: float = 0.10
+MAX_START_RANDOM_XZ: float = 0.01
+MAX_START_RANDOM_Y: float = 0.01
 
-STARTING_JOINT_POSITIONS = [1.678, -0.533, -0.047, -2.741, -0.029, 2.207, 0.869, 0.02, 0.02]
-RP = STARTING_JOINT_POSITIONS
+# Gripper configurations
+GRIPPER_OPEN: float = 0.04
+GRIPPER_CLOSE: float = 0.0
 
-MODEL_PATH = 'models/model_' + str(MODEL_TYPE.name)+ '-' + str(IMAGE_SIZE) + 'px_' + str(NO_EPISODES) + '_episodes' + ('_lstm_' + str(LSTM_LAYERS) + 'layers' if USE_LSTM else '')
-EPOCH_LOSSES_PATH = MODEL_PATH + '_epoch_losses'
-VALIDATION_LOSSES_PATH = MODEL_PATH + '_validation_losses'
-DETAILS_PATH = MODEL_PATH + '_details'
+# Robot parameters
+PANDA_END_EFFECTOR_INDEX: int = 11
+PANDA_DOFS: int = 7
 
-IMAGES_PATH = 'images/'
-SAMPLE_LABEL_PATH = 'labels/sample_labels_' + str(IMAGE_SIZE) + 'px_' + str(NO_EPISODES) + '_episodes'
-GATHER_MORE_LABEL_PATH = 'labels/sample_labels_' + str(IMAGE_SIZE) + 'px_' + str(STARTING_EPISODES) + '_episodes'
-SAVING_LABEL_PATH = 'labels/sample_labels_' + str(IMAGE_SIZE) + 'px_' + str(STARTING_EPISODES + NO_EPISODES if GATHER_DATA_MORE else NO_EPISODES) + '_episodes'
+LL: list[int] = [-7] * PANDA_DOFS
+UL: list[int] = [7] * PANDA_DOFS
+JR: list[int] = [7] * PANDA_DOFS
 
-CAMERA_POSITIONS = {
+PLANE_START_POSITION: np.ndarray = np.array([0, 0.03, -0.5])
+ROBOT_START_POSITION: np.ndarray = np.array([0, 0.3, -0.35])
+
+STARTING_JOINT_POSITIONS: list[float] = [1.678, -0.533, -0.047, -2.741, -0.029, 2.207, 0.869, 0.02, 0.02]
+RP: list[float] = STARTING_JOINT_POSITIONS
+
+# Paths
+def get_model_path() -> str:
+    return f'models/{TASK_TYPE.name.lower()}/model_{MODEL_TYPE.name}_{IMAGE_SIZE}px_{NO_EPISODES}_episodes' + (f'_lstm_{LSTM_LAYERS}layers' if USE_LSTM else '')
+
+MODEL_PATH: str = get_model_path()
+DETAILS_PATH: str = f'{MODEL_PATH}_details'
+
+def get_label_path(episodes: int) -> str:
+    return f'labels/{TASK_TYPE.name.lower()}/sample_labels_{IMAGE_SIZE}px_' + str(episodes) + '_episodes'
+
+IMAGES_PATH: str = f'images/{TASK_TYPE.name.lower()}/'
+SAMPLE_LABEL_PATH: str = get_label_path(NO_EPISODES)
+GATHER_MORE_LABEL_PATH: str = get_label_path(STARTING_EPISODES)
+
+# Camera positions and setups
+CAMERA_POSITIONS: dict[str, dict[str, float]] = {
     "cam1": {
         "distance": 1.1,
         "yaw": 0,
@@ -86,12 +112,14 @@ CAMERA_POSITIONS = {
         "target_position": [0, 0, -0.4],
     }
 }
+CAMERA_FAR_PLANE = 5
+CAMERA_NEAR_PLANE = 0.01
 
-CAMERA_SETUPS = {
+CAMERA_SETUPS: dict[int, list[str]] = {
     1: ["ego"],
     2: ["cam1"],
     3: ["cam1", "cam2"],
     4: ["cam1", "ego"]
 }
 
-ACTIVE_CAMERAS = CAMERA_SETUPS[MODEL_TYPE.value]
+ACTIVE_CAMERAS: list[str] = CAMERA_SETUPS[MODEL_TYPE.value]
