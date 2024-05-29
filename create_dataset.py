@@ -80,7 +80,8 @@ while episode < no_episodes:
             time.sleep(TIME_STEP)
     else:
         state, positions = panda.get_state()
-        # print(panda.state.name + str(panda.is_moving()))
+        # print(panda.task.state.name + str(panda.task.is_moving()))
+        # print(panda.task.is_gripper_closed())
         
     panda.bullet_client.stopStateLogging(logId)
 

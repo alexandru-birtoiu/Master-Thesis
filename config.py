@@ -10,36 +10,36 @@ class ModelType(Enum):
 
 class TaskType(Enum):
     CUBE_TABLE = 1
+    INSERT_CUBE = 2
     # Add other tasks as needed
 
 # General configurations
-EPOCH: int = 10
+EPOCH: int = 15
 MODEL_TYPE: ModelType = ModelType.BIRDSEYE
-TASK_TYPE: TaskType = TaskType.CUBE_TABLE
+USE_DEPTH: bool = False
+TASK_TYPE: TaskType = TaskType.INSERT_CUBE
 
-SHOW_AUX_POS: int = 1
+SHOW_AUX_POS: int = 0
 DEVICE: str = 'mps'
 
 # Training configurations
 TRAIN_MODEL_MORE: int = 0
 STARTING_EPOCH: int = 0
-EPOCHS_TO_TRAIN: int = 10
+EPOCHS_TO_TRAIN: int = 30
 
-USE_LSTM: int = False
+USE_LSTM: int = True
 LSTM_LAYERS: int = 1
 
 LEARNING_RATE: float = 0.0002
-BATCH_SIZE: int = 64
 SCHEDULER_STEP_SIZE: int = 3
-
+BATCH_SIZE: int = 64
 
 # Data gathering configurations
 
-NO_EPISODES: int = 1000
-GATHER_DATA: bool = True
+NO_EPISODES: int = 850
+GATHER_DATA: bool = False
 GATHER_DATA_MORE: int = False
 STARTING_EPISODES: int = 0
-
 
 # Image configurations
 IMAGE_SIZE: int = 128
@@ -49,6 +49,7 @@ FPS: float = 240.0
 TIME_STEP: float = 1.0 / FPS
 
 WAIT_TIME_DROP: float = 0.25
+WAIT_TIME_GRASP: float = 0.05
 WAIT_TIME_OTHER: float = 0.1
 REACHED_TARGET_THRESHOLD: float = 0.01
 ROBOT_SPEED: float = 0.1
@@ -60,7 +61,7 @@ CAMERA_PITCH: int = -30
 CAMERA_TARGET_POSITION: list[float] = [0, 0, 0]
 
 # Randomization parameters
-MAX_CUBE_RANDOM: float = 0.15
+MAX_CUBE_RANDOM: float = 0.10
 MAX_START_RANDOM_XZ: float = 0.01
 MAX_START_RANDOM_Y: float = 0.01
 
@@ -83,7 +84,7 @@ STARTING_JOINT_POSITIONS: list[float] = [1.678, -0.533, -0.047, -2.741, -0.029, 
 RP: list[float] = STARTING_JOINT_POSITIONS
 
 # Paths
-def get_model_path() -> str:
+def get_model_path() -> str: #_DEPTH{str(USE_DEPTH)}
     return f'models/{TASK_TYPE.name.lower()}/model_{MODEL_TYPE.name}_{IMAGE_SIZE}px_{NO_EPISODES}_episodes' + (f'_lstm_{LSTM_LAYERS}layers' if USE_LSTM else '')
 
 MODEL_PATH: str = get_model_path()

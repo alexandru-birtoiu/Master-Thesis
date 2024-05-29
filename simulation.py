@@ -11,6 +11,7 @@ from torchvision import transforms
 from utils import get_image_path
 from enum import Enum
 from CubeTask import CubeTask
+from InsertTask import InsertTask
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -69,13 +70,14 @@ class PandaSim(object):
 
         self.text_id_cube = -1
         self.text_id_ee = -1
+
+        self.steps = 0
         
         if self.use_network:
             self.device = torch.device(DEVICE)
             self.model = Network(len(ACTIVE_CAMERAS), self.device).to(self.device)
             self.model.load_state_dict(torch.load(MODEL_PATH + '_' + str(EPOCH) + '.pth'))
             self.model.eval()
-            self.steps = 0
             self.active_cameras = ACTIVE_CAMERAS
             self.create_folder('network')
 
@@ -89,10 +91,13 @@ class PandaSim(object):
         self.init_cameras()
 
     def load_task(self, task_type):
-        if task_type == TaskType.CUBE_TABLE:
-            return CubeTask(self.bullet_client, self.flags, self.next_episode)
-
-        raise ValueError(f"Unknown task: {task_type.name}")
+        tasks = {
+            TaskType.CUBE_TABLE: CubeTask(self.bullet_client, self.flags, self.next_episode),
+            TaskType.INSERT_CUBE: InsertTask(self.bullet_client, self.flags, self.next_episode),
+        }
+        # Get the value corresponding to the key `option` from the dictionary.
+        # If the key is not found, return the default value.
+        return tasks.get(task_type, f"Unknown task: {task_type.name}")
 
     def create_folder(self, camera):
         folder_path = IMAGES_PATH + camera
@@ -235,24 +240,36 @@ class PandaSim(object):
         self.update_ego_camera()
 
         if self.use_network:
-            if len(self.images[list(self.images.keys())[0]]) < 4:
-                for key in self.active_cameras:
-                    rgbim, depthim = self.get_camera_image(key)
+            if self.steps % 2 == 1:
+                if len(self.images[list(self.images.keys())[0]]) < 4:
+                    for key in self.active_cameras:
+                        rgbim, depthim = self.get_camera_image(key)
 
-                    self.images[key].append(transform(rgbim).to(self.device, dtype=torch.float))
-                    rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
-                    # depthim.save(IMAGES_PATH + 'network/depth_' + str(key) + '.png')
+                        if USE_DEPTH:
+                            depth_data = torch.tensor(depthim).view(1, IMAGE_SIZE, IMAGE_SIZE)
+                            min_val = depth_data.min()
+                            max_val = depth_data.max()
+                            
+                            depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
+
+                            self.images[key].append(depth_data_normalized.to(self.device, dtype=torch.float))
+                        else:
+                            self.images[key].append(transform(rgbim).to(self.device, dtype=torch.float))
+                            rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
+                        # depthim.save(IMAGES_PATH + 'network/depth_' + str(key) + '.png')
 
             return 1 if len(self.images[list(self.images.keys())[0]]) == 4 else -1
         else: 
-            for key in self.active_cameras:
-                rgbim, depthim = self.get_camera_image(key)
-                image_path = get_image_path(key, self.episode, self.sample_episode)
-                rgbim.save(image_path)
-                torch.save(depthim, image_path.replace('.png', '_depth'))
+            ret = -1
+            if self.steps % 2 == 1:
+                for key in self.active_cameras:
+                    rgbim, depthim = self.get_camera_image(key)
+                    image_path = get_image_path(key, self.episode, self.sample_episode)
+                    rgbim.save(image_path)
+                    torch.save(depthim, image_path.replace('.png', '_depth'))
 
-            ret = -1 if self.sample_episode < 3 else self.sample_episode 
-            self.sample_episode += 1
+                ret = -1 if self.sample_episode < 3 else self.sample_episode 
+                self.sample_episode += 1
 
             return ret
 
@@ -261,7 +278,17 @@ class PandaSim(object):
         inputs = []
         for camera in self.active_cameras:
             inputs.append(torch.cat(self.images[camera], dim=0).unsqueeze(0).to(self.device, dtype=torch.float))
-        print(positions)
+        positions = torch.tensor(positions).to(self.device, dtype=torch.float)
+
+        output = (self.model(inputs, positions.unsqueeze(0)).squeeze()).tolist()
+
+        return output
+    
+    def get_network_output_lstm(self, positions):
+        inputs = []
+        for camera in self.active_cameras:
+            inputs.append(self.images[camera][-1].unsqueeze(0).to(self.device, dtype=torch.float))
+
         positions = torch.tensor(positions).to(self.device, dtype=torch.float)
 
         output = (self.model(inputs, positions.unsqueeze(0)).squeeze()).tolist()
@@ -284,6 +311,7 @@ class PandaSim(object):
 
     def next_episode(self):
         self.episode += 1
+        self.steps = 0
         self.sample_episode = 0
         for body in self.task.bodies:
             self.bullet_client.removeBody(body)
@@ -305,7 +333,12 @@ class PandaSim(object):
                 self.finger_target = GRIPPER_OPEN
 
             self.t += self.control_dt
-            wait_time = WAIT_TIME_DROP if self.task.is_drop_state() else WAIT_TIME_OTHER
+            if self.task.is_drop_state():
+                wait_time = WAIT_TIME_DROP
+            elif self.task.is_grab_state():
+                wait_time = WAIT_TIME_DROP
+            else:
+                wait_time =  WAIT_TIME_OTHER
 
             if self.t > wait_time:
                 self.task.next_state()
@@ -336,10 +369,9 @@ class PandaSim(object):
         if self.use_network:
             if self.steps > 300:
                 self.step_network()
-            else:
-                self.steps += 1
         else:
             self.update_state()
+        self.steps += 1
 
 
 

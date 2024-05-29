@@ -6,37 +6,43 @@ from torchvision.io import read_image
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-from utils import get_image_path
+from utils import get_image_path, get_depth_path
 import math
 
 from config import *
 
+
 class ImageLayer(nn.Module):
-    def __init__(self):
+    def __init__(self, input_channels):
         super(ImageLayer, self).__init__()
-        self.conv1 = nn.Conv2d(16, 32, kernel_size=(3, 3), stride=2, padding=1)
+        self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=(3, 3), stride=2, padding=1)
         self.conv2 = nn.Conv2d(32, 48, kernel_size=(3, 3), stride=2, padding=1)
         self.conv3 = nn.Conv2d(48, 64, kernel_size=(3, 3), stride=2, padding=1)
         self.conv4 = nn.Conv2d(64, 128, kernel_size=(3, 3), stride=2, padding=1)
         self.conv5 = nn.Conv2d(128, 192, kernel_size=(3, 3), stride=2, padding=1)
         self.conv6 = nn.Conv2d(192, 256, kernel_size=(3, 3), stride=2, padding=1)
-        # self.conv7 = nn.Conv2d(256, 256, kernel_size=(3, 3), stride=2, padding=1)
-        # self.conv8 = nn.Conv2d(256, 256, kernel_size=(3, 3), stride=2, padding=1)
-
+        self.conv7 = nn.Conv2d(256, 256, kernel_size=(3, 3), stride=2, padding=1)
 
     def forward(self, x):
+        batch_size, channels, height, width = x.size()
+        number_of_images = 4
+        channels_per_image = channels // number_of_images
+
+        # Reshape input tensor to (batch_size * number_of_images, channels_per_image, height, width)
+        x = x.view(batch_size * number_of_images, channels_per_image, height, width)
+
+        # Apply convolutional layers
         x = torch.relu(self.conv1(x))
         x = torch.relu(self.conv2(x))
         x = torch.relu(self.conv3(x))
         x = torch.relu(self.conv4(x))
         x = torch.relu(self.conv5(x))
         x = torch.relu(self.conv6(x))
-        # x = torch.relu(self.conv7(x))
-        # x = torch.relu(self.conv8(x))
+        x = torch.relu(self.conv7(x))
 
-        batch_size, features, height, width = x.size()
-        # print(x.shape)
-        x = x.view(batch_size, features * height * width)  # Reshape for LSTM
+        # Reshape back to (batch_size, number_of_images, -1)
+        x = x.view(batch_size, number_of_images, -1)
+
         return x
 
 class Network(nn.Module):
@@ -45,32 +51,41 @@ class Network(nn.Module):
         self.device = device
         self.no_cameras = no_cameras
         
-        self.conv_layers = nn.ModuleList([ImageLayer().to(device) for _ in range(no_cameras)])
+        self.conv_layers = nn.ModuleList([ImageLayer(1 if USE_DEPTH else 4).to(device) for _ in range(no_cameras)])
 
-        conv_output_size = 1024 * no_cameras + 7
-        ff_hidden_size = 256 * no_cameras
+        conv_output_size = 256 * no_cameras
+        self.ff_hidden_size = 128 * no_cameras
+
+        conv_output_size_no_lstm = conv_output_size * 4
+
+        last_layer_size = self.ff_hidden_size + 7
 
         if USE_LSTM:
-            self.lstm = nn.LSTM(input_size=conv_output_size, hidden_size=ff_hidden_size, num_layers=LSTM_LAYERS, batch_first=True)
-        self.fc1 = nn.Linear(conv_output_size, ff_hidden_size)
-        self.fc2 = nn.Linear(ff_hidden_size, 15)  # 7 velocities + 2 gripper action + 3 cube positions + 3 end effector positions
+            self.lstm = nn.LSTM(input_size=conv_output_size, hidden_size=self.ff_hidden_size, num_layers=LSTM_LAYERS, batch_first=True)
+        else:
+            self.fc1 = nn.Linear(conv_output_size_no_lstm, self.ff_hidden_size)
+        self.fc2 = nn.Linear(last_layer_size, 15)  # 7 velocities + 2 gripper action + 3 cube positions + 3 end effector positions
 
     def forward(self, x, positions):
-        output = torch.tensor([], device=self.device)
+        image_output = torch.tensor([], device=self.device)
         for idx, input in enumerate(x):
             input = self.conv_layers[idx](input)
+            image_output = torch.concat((image_output, input), dim = 2)
 
-            output = torch.cat((output, input), dim = 1)
-
-        x = torch.concat((output, positions), dim=1)
-    
-
+        output = None
         if USE_LSTM: 
-            lstm_out, _ = self.lstm(x)
-            return self.fc2(lstm_out)
-        
-        x = torch.relu(self.fc1(x))
-        return self.fc2(x)
+            h_0 = torch.randn(LSTM_LAYERS, image_output.shape[0], self.ff_hidden_size, requires_grad=True).to(self.device) 
+            c_0 = torch.randn(LSTM_LAYERS, image_output.shape[0], self.ff_hidden_size, requires_grad=True).to(self.device) 
+
+            lstm_out, _ = self.lstm(image_output, (h_0, c_0))
+            output = lstm_out[:, -1, :] 
+        else:
+            batch_size, images, features = image_output.size()
+            image_output = image_output.view(batch_size, images * features)
+            output = torch.relu(self.fc1(image_output))
+
+        output = torch.concat((output, positions), dim=1)
+        return self.fc2(output)
     
 class EpisodeBatchSampler(Sampler):
     def __init__(self, label_file, batch_size, split=0.85, train=True, random=False):
@@ -142,10 +157,21 @@ class CustomImageDataset(Dataset):
         for camera in self.cameras:
             sample_images = []
             for i in range(3, -1, -1):
-                image_path = get_image_path(camera, episode, sample - i)
-                img = read_image(image_path).to(self.device, dtype=torch.float)
-                sample_images.append(img)
-            inputs.append(torch.cat(sample_images, dim=0))
+                if USE_DEPTH:
+                    depth_path = get_depth_path(camera, episode, sample - i)
+                    depth_data = torch.tensor(torch.load(depth_path))
+                    depth_data = depth_data.view(1, IMAGE_SIZE, IMAGE_SIZE)
+                    min_val = depth_data.min()
+                    max_val = depth_data.max()
+                    
+                    depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
+
+                    sample_images.append(depth_data_normalized.to(self.device))
+                else:
+                    image_path = get_image_path(camera, episode, sample - i)
+                    img = read_image(image_path).to(self.device, dtype=torch.float)
+                    sample_images.append(img)
+            inputs.append(torch.concat(sample_images, dim=0))
         
         label = torch.tensor(self.labels[episode][sample]["labels"]).to(self.device)
         positions = torch.tensor(self.labels[episode][sample]["positions"]).to(self.device)
