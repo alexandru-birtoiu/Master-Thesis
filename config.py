@@ -11,24 +11,28 @@ class ModelType(Enum):
 class TaskType(Enum):
     CUBE_TABLE = 1
     INSERT_CUBE = 2
+    CUBE_DEPTH = 3
     # Add other tasks as needed
 
 # General configurations
-EPOCH: int = 15
-MODEL_TYPE: ModelType = ModelType.BIRDSEYE
+EPOCH: int = 10
+MODEL_TYPE: ModelType = ModelType.EGO_AND_BIRDSEYE
 USE_DEPTH: bool = False
 TASK_TYPE: TaskType = TaskType.INSERT_CUBE
 
-SHOW_AUX_POS: int = 0
+SHOW_AUX_POS: int = 1
 DEVICE: str = 'mps'
 
 # Training configurations
 TRAIN_MODEL_MORE: int = 0
 STARTING_EPOCH: int = 0
-EPOCHS_TO_TRAIN: int = 30
+EPOCHS_TO_TRAIN: int = 10
 
-USE_LSTM: int = True
+USE_LSTM: bool = True
 LSTM_LAYERS: int = 1
+SEQUENCE_LENGTH = 1
+
+USE_TRANSFORMERS: bool = True
 
 LEARNING_RATE: float = 0.0002
 SCHEDULER_STEP_SIZE: int = 3
@@ -36,10 +40,11 @@ BATCH_SIZE: int = 64
 
 # Data gathering configurations
 
-NO_EPISODES: int = 850
-GATHER_DATA: bool = False
+NO_EPISODES: int = 200
+GATHER_DATA: bool = True
 GATHER_DATA_MORE: int = False
 STARTING_EPISODES: int = 0
+STEPS_SKIPED = 2
 
 # Image configurations
 IMAGE_SIZE: int = 128
@@ -49,7 +54,7 @@ FPS: float = 240.0
 TIME_STEP: float = 1.0 / FPS
 
 WAIT_TIME_DROP: float = 0.25
-WAIT_TIME_GRASP: float = 0.05
+WAIT_TIME_GRASP: float = 0.04#0.025
 WAIT_TIME_OTHER: float = 0.1
 REACHED_TARGET_THRESHOLD: float = 0.01
 ROBOT_SPEED: float = 0.1
@@ -61,7 +66,7 @@ CAMERA_PITCH: int = -30
 CAMERA_TARGET_POSITION: list[float] = [0, 0, 0]
 
 # Randomization parameters
-MAX_CUBE_RANDOM: float = 0.10
+MAX_CUBE_RANDOM: float = 0.07
 MAX_START_RANDOM_XZ: float = 0.01
 MAX_START_RANDOM_Y: float = 0.01
 
@@ -85,7 +90,9 @@ RP: list[float] = STARTING_JOINT_POSITIONS
 
 # Paths
 def get_model_path() -> str: #_DEPTH{str(USE_DEPTH)}
-    return f'models/{TASK_TYPE.name.lower()}/model_{MODEL_TYPE.name}_{IMAGE_SIZE}px_{NO_EPISODES}_episodes' + (f'_lstm_{LSTM_LAYERS}layers' if USE_LSTM else '')
+    return f'models/{TASK_TYPE.name.lower()}/model_{MODEL_TYPE.name}_{IMAGE_SIZE}px_{NO_EPISODES}_episodes' \
+        + (f'_lstm_{SEQUENCE_LENGTH}seq_{LSTM_LAYERS}layers' if USE_LSTM else '') \
+        + ('_transformers' if USE_TRANSFORMERS else '')
 
 MODEL_PATH: str = get_model_path()
 DETAILS_PATH: str = f'{MODEL_PATH}_details'

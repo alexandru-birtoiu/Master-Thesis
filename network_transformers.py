@@ -8,7 +8,8 @@ import numpy as np
 from tqdm import tqdm
 from utils import get_image_path, get_depth_path
 import math
-
+from collections import OrderedDict
+from torchtest import assert_vars_change
 from config import *
 
 
@@ -45,6 +46,79 @@ class ImageLayer(nn.Module):
         x = x.view(batch_size, number_of_images, -1)
 
         return x
+    
+class CrossViewAttention(nn.Module):
+    def __init__(self, embed_dim, num_heads, mlp_hidden_dim):
+        super(CrossViewAttention, self).__init__()
+        
+        self.layer_norm = nn.LayerNorm(embed_dim)
+        
+        self.q_linear1 = nn.Linear(embed_dim, embed_dim)
+        self.k_linear2 = nn.Linear(embed_dim, embed_dim)
+        self.v_linear2 = nn.Linear(embed_dim, embed_dim)
+        
+        self.q_linear2 = nn.Linear(embed_dim, embed_dim)
+        self.k_linear1 = nn.Linear(embed_dim, embed_dim)
+        self.v_linear1 = nn.Linear(embed_dim, embed_dim)
+        
+        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=0.1)
+        
+        self.mlp1 = nn.Sequential(
+            nn.Linear(embed_dim, mlp_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(mlp_hidden_dim, embed_dim)
+        )
+        
+        self.mlp2 = nn.Sequential(
+            nn.Linear(embed_dim, mlp_hidden_dim),
+            nn.ReLU(),
+            nn.Linear(mlp_hidden_dim, embed_dim)
+        )
+
+    def forward(self, camera_1, camera_2):
+        _, num_images, _ = camera_1.size()
+        
+        # Prepare the tensors for MultiheadAttention
+        camera_1 = camera_1.permute(1, 0, 2)  # (num_images, batch_size, num_features)
+        camera_2 = camera_2.permute(1, 0, 2)  # (num_images, batch_size, num_features)
+        
+        combined_outputs = []
+        
+        for i in range(num_images):
+            z1 = camera_1[i]
+            z2 = camera_2[i]
+            
+            ln_z1 = self.layer_norm(z1)
+            ln_z2 = self.layer_norm(z2)
+            
+            q1 = self.q_linear1(ln_z1)
+            k2 = self.k_linear2(ln_z2)
+            v2 = self.v_linear2(ln_z2)
+            
+            q2 = self.q_linear2(ln_z2)
+            k1 = self.k_linear1(ln_z1)
+            v1 = self.v_linear1(ln_z1)
+            
+            attn_output1, _ = self.attention(q1.unsqueeze(0), k2.unsqueeze(0), v2.unsqueeze(0))
+            attn_output2, _ = self.attention(q2.unsqueeze(0), k1.unsqueeze(0), v1.unsqueeze(0))
+            
+            # Squeeze the first dimension
+            attn_output1 = attn_output1.squeeze(0)
+            attn_output2 = attn_output2.squeeze(0)
+            
+            ln_attn_output1 = self.layer_norm(z1 + attn_output1)
+            ln_attn_output2 = self.layer_norm(z2 + attn_output2)
+            
+            h1 = self.mlp1(ln_attn_output1)
+            h2 = self.mlp2(ln_attn_output2)
+            
+            combined_output = h1 + h2
+            combined_outputs.append(combined_output)
+        
+        combined_outputs = torch.stack(combined_outputs, dim=0)
+        combined_outputs = combined_outputs.permute(1, 0, 2)  # (batch_size, num_images, num_features)
+        
+        return combined_outputs
 
 class Network(nn.Module):
     def __init__(self, no_cameras, device):
@@ -53,46 +127,46 @@ class Network(nn.Module):
         self.no_cameras = no_cameras
         
         self.conv_layers = nn.ModuleList([ImageLayer(1 if USE_DEPTH else 4).to(device) for _ in range(no_cameras)])
+        self.cross_view_attention = CrossViewAttention(256, 8, 512).to(device)
 
-        conv_output_size = 256 * no_cameras
         lstm_input_size = 256
-        self.ff_hidden_size = 128
+        hidden_size1 = 512
+        self.hidden_size2 = 128
 
-        conv_output_size_no_lstm = conv_output_size * SEQUENCE_LENGTH
-        hidden_size_no_lstm = self.ff_hidden_size * no_cameras
-
+        last_layer_size = self.hidden_size2 + 7
         
-        last_layer_size = self.ff_hidden_size + 7
+        # self.lstm = nn.LSTM(input_size=lstm_input_size, hidden_size=self.hidden_size2, num_layers=LSTM_LAYERS, batch_first=True)
 
-        if USE_LSTM:
-            self.fc1 = nn.Linear(conv_output_size, lstm_input_size)
-            self.lstm = nn.LSTM(input_size=lstm_input_size, hidden_size=self.ff_hidden_size, num_layers=LSTM_LAYERS, batch_first=True)
-        else:
-            self.fc1 = nn.Linear(conv_output_size_no_lstm, hidden_size_no_lstm)
-        self.fc2 = nn.Linear(last_layer_size, 15)  # 7 velocities + 2 gripper action + 3 cube positions + 3 end effector positions
+        self.mlp = nn.Sequential(
+            nn.Linear(lstm_input_size, hidden_size1),
+            nn.ReLU(),
+            nn.Linear(hidden_size1, self.hidden_size2),
+            nn.ReLU()
+        )
+        self.last = nn.Linear(last_layer_size, 15)  # 7 velocities + 2 gripper action + 3 cube positions + 3 end effector positions
 
     def forward(self, x, positions):
-        image_output = torch.tensor([], device=self.device)
+        image_output = []
         for idx, input in enumerate(x):
             input = self.conv_layers[idx](input)
-            image_output = torch.concat((image_output, input), dim = 2)
+            image_output.append(input)
 
-        output = None
-        if USE_LSTM: 
-            lstm_input = self.fc1(image_output)
+        camera_1 = image_output[0]
+        camera_2 = image_output[1]
 
-            h_0 = torch.randn(LSTM_LAYERS, image_output.shape[0], self.ff_hidden_size, requires_grad=True).to(self.device) 
-            c_0 = torch.randn(LSTM_LAYERS, image_output.shape[0], self.ff_hidden_size, requires_grad=True).to(self.device) 
+        lstm_input = self.cross_view_attention(camera_1, camera_2)
 
-            lstm_out, _ = self.lstm(lstm_input, (h_0, c_0))
-            output = lstm_out[:, -1, :] 
-        else:
-            batch_size, images, features = image_output.size()
-            image_output = image_output.view(batch_size, images * features)
-            output = torch.relu(self.fc1(image_output))
+        # h_0 = torch.randn(LSTM_LAYERS, lstm_input.shape[0], self.hidden_size2, requires_grad=True).to(self.device) 
+        # c_0 = torch.randn(LSTM_LAYERS, lstm_input.shape[0], self.hidden_size2, requires_grad=True).to(self.device) 
 
+        # lstm_out, _ = self.lstm(lstm_input) #(h_0, c_0))
+        # output = lstm_out[:, -1, :]
+
+        lstm_input = lstm_input.squeeze(1)
+        output = self.mlp(lstm_input)
+        
         output = torch.concat((output, positions), dim=1)
-        return self.fc2(output)
+        return self.last(output)
     
 class EpisodeBatchSampler(Sampler):
     def __init__(self, label_file, batch_size, split=0.85, train=True, random=False):
@@ -145,6 +219,22 @@ class EpisodeBatchSampler(Sampler):
                              for episode in self.episodes)
         return total_samples
 
+class ImageCache:
+    def __init__(self, max_size):
+        self.cache = OrderedDict()
+        self.max_size = max_size
+
+    def get(self, path):
+        if path in self.cache:
+            return self.cache[path]
+        return None
+
+    def put(self, path, tensor):
+        self.cache[path] = tensor
+        self.cache.move_to_end(path)
+        if len(self.cache) > self.max_size:
+            self.cache.popitem(last=False)
+            
 
 class CustomImageDataset(Dataset):
     def __init__(self, label_file, device):
@@ -157,6 +247,8 @@ class CustomImageDataset(Dataset):
                 for sample in list(samples.keys())[SEQUENCE_LENGTH - 1:]
         ]
 
+        self.image_cache = ImageCache(max_size=len(self.cameras) * SEQUENCE_LENGTH)
+
     def __len__(self):
         return len(self.episode_sample_pairs)
 
@@ -167,20 +259,29 @@ class CustomImageDataset(Dataset):
         for camera in self.cameras:
             sample_images = []
             for i in range(SEQUENCE_LENGTH - 1, -1, -1):
-                # if sample - i >= 0:
                 if USE_DEPTH:
                     depth_path = get_depth_path(camera, episode, sample - i)
-                    depth_data = torch.tensor(torch.load(depth_path))
-                    depth_data = depth_data.view(1, IMAGE_SIZE, IMAGE_SIZE)
-                    min_val = depth_data.min()
-                    max_val = depth_data.max()
-                    
-                    depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
+                    depth_data_normalized = self.image_cache.get(depth_path)
 
-                    sample_images.append(depth_data_normalized.to(self.device))
+                    if depth_data is None:
+                        depth_data = torch.tensor(torch.load(depth_path))
+                        depth_data = depth_data.view(1, IMAGE_SIZE, IMAGE_SIZE)
+
+                        min_val = depth_data.min()
+                        max_val = depth_data.max()
+                        depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
+
+                        self.image_cache.put(depth_path, depth_data_normalized.to(self.device))
+
+                    sample_images.append(depth_data_normalized)
                 else:
                     image_path = get_image_path(camera, episode, sample - i)
-                    img = read_image(image_path).to(self.device, dtype=torch.float)
+                    img = self.image_cache.get(image_path)
+
+                    if img is None:
+                        img = read_image(image_path).to(self.device, dtype=torch.float)
+                        self.image_cache.put(image_path, img)
+
                     sample_images.append(img)
             inputs.append(torch.concat(sample_images, dim=0))
         
@@ -210,6 +311,8 @@ def train():
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=SCHEDULER_STEP_SIZE, gamma=0.5)
+
+    print(MODEL_PATH)
 
     if TRAIN_MODEL_MORE:
         model.load_state_dict(torch.load(MODEL_PATH + '_' + str(STARTING_EPOCH) + '.pth', map_location=DEVICE))
@@ -310,7 +413,6 @@ def train():
     plt.plot(range(1, starting_epoch + EPOCHS_TO_TRAIN + 1), validation_losses, label='Validation Epoch Loss')
     fig.savefig('loss_figs/loss_' + MODEL_PATH.split('/')[1]  + "_" + MODEL_PATH.split('/')[2] +'.png')
     plt.show(block=True)
-
 
 if __name__ == "__main__":
     train()

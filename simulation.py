@@ -4,7 +4,8 @@ import math
 import os
 from torchvision.io import read_image
 from config import *
-from network import Network
+from network import Network as NetworkBase
+from network_transformers import Network as NetorkTransformers
 import torch
 from PIL import Image
 from torchvision import transforms
@@ -12,6 +13,7 @@ from utils import get_image_path
 from enum import Enum
 from CubeTask import CubeTask
 from InsertTask import InsertTask
+from CubeDepthTask import CubeDepthTask
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -29,14 +31,13 @@ class PandaSim(object):
         self.start_position = PLANE_START_POSITION
         self.robot_start = ROBOT_START_POSITION
 
-        self.flags = self.bullet_client.URDF_ENABLE_CACHED_GRAPHICS_SHAPES
 
-        self.bullet_client.loadURDF("plane.urdf", self.start_position, [-0.5, -0.5, -0.5, 0.5], flags=self.flags)
+        self.bullet_client.loadURDF("plane.urdf", self.start_position, [-0.5, -0.5, -0.5, 0.5])
 
         orn = [-0.707107, 0.0, 0.0, 0.707107]
 
         self.panda = self.bullet_client.loadURDF("franka_panda/panda.urdf", np.array([0, 0, 0]), orn,
-                                                 useFixedBase=True, flags=self.flags)
+                                                 useFixedBase=True)
         self.orn = self.bullet_client.getQuaternionFromEuler([math.pi / 2., math.pi / 2., 0.])
 
         self.control_dt = TIME_STEP
@@ -58,6 +59,7 @@ class PandaSim(object):
 
         self.task = self.load_task(task_type)
         self.task.randomize_environment()
+        # self.task.randomize_environment()
         
         self.t = 0.
         self.t_target = 0.
@@ -75,7 +77,10 @@ class PandaSim(object):
         
         if self.use_network:
             self.device = torch.device(DEVICE)
-            self.model = Network(len(ACTIVE_CAMERAS), self.device).to(self.device)
+            if USE_TRANSFORMERS:
+                self.model  = NetorkTransformers(len(ACTIVE_CAMERAS), self.device).to(self.device)
+            else:
+                self.model = NetworkBase(len(ACTIVE_CAMERAS), self.device).to(self.device)
             self.model.load_state_dict(torch.load(MODEL_PATH + '_' + str(EPOCH) + '.pth'))
             self.model.eval()
             self.active_cameras = ACTIVE_CAMERAS
@@ -92,8 +97,9 @@ class PandaSim(object):
 
     def load_task(self, task_type):
         tasks = {
-            TaskType.CUBE_TABLE: CubeTask(self.bullet_client, self.flags, self.next_episode),
-            TaskType.INSERT_CUBE: InsertTask(self.bullet_client, self.flags, self.next_episode),
+            TaskType.CUBE_TABLE: CubeTask(self.bullet_client, self.next_episode),
+            TaskType.INSERT_CUBE: InsertTask(self.bullet_client, self.next_episode),
+            TaskType.CUBE_DEPTH: CubeDepthTask(self.bullet_client, self.next_episode),
         }
         # Get the value corresponding to the key `option` from the dictionary.
         # If the key is not found, return the default value.
@@ -173,8 +179,9 @@ class PandaSim(object):
 
         for i in range(PANDA_DOFS):
             pos, vel, _, _ = self.bullet_client.getJointState(self.panda, i)
-            current_state.append(vel)
+            # current_state.append(vel)
             current_positions.append(pos)
+        
         
         current_state += ([1, 0] if self.task.is_gripper_closed() else [0, 1])
         cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.task.bodies[0])
@@ -240,8 +247,8 @@ class PandaSim(object):
         self.update_ego_camera()
 
         if self.use_network:
-            if self.steps % 2 == 1:
-                if len(self.images[list(self.images.keys())[0]]) < 4:
+            if self.steps % STEPS_SKIPED == 0:
+                if len(self.images[list(self.images.keys())[0]]) < SEQUENCE_LENGTH:
                     for key in self.active_cameras:
                         rgbim, depthim = self.get_camera_image(key)
 
@@ -258,20 +265,18 @@ class PandaSim(object):
                             rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
                         # depthim.save(IMAGES_PATH + 'network/depth_' + str(key) + '.png')
 
-            return 1 if len(self.images[list(self.images.keys())[0]]) == 4 else -1
+            return 1 if len(self.images[list(self.images.keys())[0]]) == SEQUENCE_LENGTH else -1
         else: 
-            ret = -1
-            if self.steps % 2 == 1:
+            if self.steps % STEPS_SKIPED == 0:
                 for key in self.active_cameras:
                     rgbim, depthim = self.get_camera_image(key)
                     image_path = get_image_path(key, self.episode, self.sample_episode)
                     rgbim.save(image_path)
                     torch.save(depthim, image_path.replace('.png', '_depth'))
 
-                ret = -1 if self.sample_episode < 3 else self.sample_episode 
                 self.sample_episode += 1
 
-            return ret
+            return self.sample_episode - 1
 
     
     def get_network_output(self, positions):
@@ -336,7 +341,7 @@ class PandaSim(object):
             if self.task.is_drop_state():
                 wait_time = WAIT_TIME_DROP
             elif self.task.is_grab_state():
-                wait_time = WAIT_TIME_DROP
+                wait_time = WAIT_TIME_GRASP
             else:
                 wait_time =  WAIT_TIME_OTHER
 
