@@ -14,11 +14,17 @@ class TaskType(Enum):
     CUBE_DEPTH = 3
     # Add other tasks as needed
 
+class PredictionType(Enum):
+    VELOCITY = 1
+    POSITION = 2
+    # Add other tasks as needed
+
 # General configurations
-EPOCH: int = 10
+EPOCH: int = 3
 MODEL_TYPE: ModelType = ModelType.EGO_AND_BIRDSEYE
 USE_DEPTH: bool = False
 TASK_TYPE: TaskType = TaskType.INSERT_CUBE
+PREDICTION_TYPE: PredictionType = PredictionType.POSITION
 
 SHOW_AUX_POS: int = 1
 DEVICE: str = 'mps'
@@ -26,21 +32,22 @@ DEVICE: str = 'mps'
 # Training configurations
 TRAIN_MODEL_MORE: int = 0
 STARTING_EPOCH: int = 0
-EPOCHS_TO_TRAIN: int = 10
+EPOCHS_TO_TRAIN: int = 20
 
 USE_LSTM: bool = True
-LSTM_LAYERS: int = 1
+LSTM_LAYERS: int = 2
 SEQUENCE_LENGTH = 1
 
 USE_TRANSFORMERS: bool = True
 
 LEARNING_RATE: float = 0.0002
+CLIP_GRADIENTS_VALUE = 1.0
 SCHEDULER_STEP_SIZE: int = 3
 BATCH_SIZE: int = 64
 
 # Data gathering configurations
 
-NO_EPISODES: int = 200
+NO_EPISODES: int = 1000
 GATHER_DATA: bool = True
 GATHER_DATA_MORE: int = False
 STARTING_EPISODES: int = 0
@@ -89,8 +96,8 @@ STARTING_JOINT_POSITIONS: list[float] = [1.678, -0.533, -0.047, -2.741, -0.029, 
 RP: list[float] = STARTING_JOINT_POSITIONS
 
 # Paths
-def get_model_path() -> str: #_DEPTH{str(USE_DEPTH)}
-    return f'models/{TASK_TYPE.name.lower()}/model_{MODEL_TYPE.name}_{IMAGE_SIZE}px_{NO_EPISODES}_episodes' \
+def get_model_path() -> str:
+    return f'models/{TASK_TYPE.name.lower()}/model_{MODEL_TYPE.name}_{PREDICTION_TYPE.name}_{IMAGE_SIZE}px_{NO_EPISODES}_episodes' \
         + (f'_lstm_{SEQUENCE_LENGTH}seq_{LSTM_LAYERS}layers' if USE_LSTM else '') \
         + ('_transformers' if USE_TRANSFORMERS else '')
 

@@ -96,6 +96,9 @@ class InsertTask(Task):
     def is_gripper_closed(self):
         return self.state.value >= 4 and self.state.value <= 6
 
+    def get_task_type(self):
+        return self.objectType.value
+
     def randomize_task(self):
         self.randx = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM)
         self.randz = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM)

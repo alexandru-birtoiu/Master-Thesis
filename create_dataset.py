@@ -69,19 +69,27 @@ while episode < no_episodes:
                 continue
 
             labels, positions = panda.get_state()
-
+            
             panda.show_cube_pos(labels[-6:-3], labels[-3:])
+
+            task_data = panda.task.get_task_type()
         
             sample_dict[current_episode][sample_per_episode] = {
                 "labels": labels,
-                "positions": positions
+                "positions": positions,
+                "task": task_data
             }
         else:
             time.sleep(TIME_STEP)
     else:
         state, positions = panda.get_state()
-        # print(panda.task.state.name + str(panda.task.is_moving()))
-        # print(panda.task.is_gripper_closed())
+        print(panda.task.state.name + str(panda.task.is_moving()))
+        print(panda.task.is_gripper_closed())
+        if panda.task.is_moving():
+            panda.show_cube_pos(state[7:10], state[-3:])
+        time.sleep(0.05)
+        
+        
         
     panda.bullet_client.stopStateLogging(logId)
 

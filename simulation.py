@@ -5,7 +5,7 @@ import os
 from torchvision.io import read_image
 from config import *
 from network import Network as NetworkBase
-from network_transformers import Network as NetorkTransformers
+from network_transformers_lstm import Network as NetorkTransformers
 import torch
 from PIL import Image
 from torchvision import transforms
@@ -65,6 +65,7 @@ class PandaSim(object):
         self.t_target = 0.
 
         self.prev_pos = []
+        self.current_target = np.array([])
 
         self.randx = 0
         self.randz = 0
@@ -79,12 +80,14 @@ class PandaSim(object):
             self.device = torch.device(DEVICE)
             if USE_TRANSFORMERS:
                 self.model  = NetorkTransformers(len(ACTIVE_CAMERAS), self.device).to(self.device)
+                self.model.reset_hidden_states(1)
             else:
                 self.model = NetworkBase(len(ACTIVE_CAMERAS), self.device).to(self.device)
             self.model.load_state_dict(torch.load(MODEL_PATH + '_' + str(EPOCH) + '.pth'))
             self.model.eval()
             self.active_cameras = ACTIVE_CAMERAS
             self.create_folder('network')
+            self.target = None
 
         else:
             self.episode = 0
@@ -179,10 +182,10 @@ class PandaSim(object):
 
         for i in range(PANDA_DOFS):
             pos, vel, _, _ = self.bullet_client.getJointState(self.panda, i)
-            # current_state.append(vel)
+            current_state.append(vel)
             current_positions.append(pos)
-        
-        
+
+        current_state += self.current_target.tolist()
         current_state += ([1, 0] if self.task.is_gripper_closed() else [0, 1])
         cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.task.bodies[0])
 
@@ -203,14 +206,28 @@ class PandaSim(object):
             self.text_id_cube = self.bullet_client.addUserDebugPoints([cube], [[0, 0, 1]], pointSize=100, lifeTime=0.1)
             self.text_id_ee = self.bullet_client.addUserDebugPoints([end_effector], [[0, 1, 0.5]], pointSize=25, lifeTime=0.1)
 
-    def move_robot_network(self, output, state):
+    def move_robot_network(self, output):
         self.show_cube_pos(output[-6:-3], output[-3:])
 
-        self.finger_target = GRIPPER_OPEN if output[7] < output[8] else GRIPPER_CLOSE
+        self.finger_target = GRIPPER_OPEN if output[-8] < output[-7] else GRIPPER_CLOSE
+        if PREDICTION_TYPE == PredictionType.POSITION: 
+            target_pos = np.array(output[:3])
 
-        for i in range(PANDA_DOFS):
-            self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.VELOCITY_CONTROL,
-                                                         targetVelocity=output[i], force=5 * 240.)
+            pos = self.prev_pos
+            diff = (self.prev_pos - target_pos) * ROBOT_SPEED
+            self.prev_pos = self.prev_pos - diff
+
+            jointPoses = self.bullet_client.calculateInverseKinematics(self.panda, PANDA_END_EFFECTOR_INDEX, pos.tolist(),
+                                                                        self.orn, LL, UL, JR, RP, maxNumIterations=20)
+
+            for i in range(PANDA_DOFS):
+                self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.POSITION_CONTROL,
+                                                            jointPoses[i], force=5 * 240.)
+        else:
+            output = output[:7]
+            for i in range(PANDA_DOFS):
+                self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.VELOCITY_CONTROL,
+                                                             targetVelocity=output[i], force=5 * 240.)
 
         for i in [9, 10]:
             self.bullet_client.setJointMotorControl2(self.panda, i, self.bullet_client.POSITION_CONTROL,
@@ -289,24 +306,25 @@ class PandaSim(object):
 
         return output
     
-    def get_network_output_lstm(self, positions):
-        inputs = []
-        for camera in self.active_cameras:
-            inputs.append(self.images[camera][-1].unsqueeze(0).to(self.device, dtype=torch.float))
+    # def get_network_output_lstm(self, positions):
+    #     inputs = []
+    #     for camera in self.active_cameras:
+    #         inputs.append(self.images[camera][-1].unsqueeze(0).to(self.device, dtype=torch.float))
 
-        positions = torch.tensor(positions).to(self.device, dtype=torch.float)
+    #     positions = torch.tensor(positions).to(self.device, dtype=torch.float)
 
-        output = (self.model(inputs, positions.unsqueeze(0)).squeeze()).tolist()
+    #     output = (self.model(inputs, positions.unsqueeze(0)).squeeze()).tolist()
 
-        return output
+    #     return output
 
     def step_network(self):
         if self.capture_images() == -1:
             return
-
-        state, positions = self.get_state()
-        output = self.get_network_output(positions)
-        self.move_robot_network(output, state)
+        # if self.steps % 10 == 0 or self.target is None:
+        _, positions = self.get_state()
+        self.target = self.get_network_output(positions)
+        
+        self.move_robot_network(self.target)
 
         self.remove_oldest_images()
         
@@ -348,14 +366,15 @@ class PandaSim(object):
             if self.t > wait_time:
                 self.task.next_state()
                 self.t = 0
-
             self.prev_pos = curent_pos
+            self.current_target = curent_pos
         else:
             if self.check_distance(curent_pos, self.task.target_pos):
                 self.task.next_state()
             else:
+                self.current_target = self.task.target_pos
+                
                 pos = self.prev_pos
-
                 diff = (self.prev_pos - self.task.target_pos) * ROBOT_SPEED
                 self.prev_pos = self.prev_pos - diff
 
@@ -372,8 +391,12 @@ class PandaSim(object):
 
     def step(self):
         if self.use_network:
+            
             if self.steps > 300:
                 self.step_network()
+            else:
+                state, _ =  self.get_state()
+                self.prev_pos = np.array(state[-3:])
         else:
             self.update_state()
         self.steps += 1
