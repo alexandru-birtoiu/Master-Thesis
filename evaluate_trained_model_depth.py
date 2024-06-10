@@ -52,6 +52,8 @@ all_epoch_results = {}
 max_full_checkpoints = 0
 best_epoch = 0
 
+print(MODEL_PATH)
+
 for epoch in range(2, EPOCH + 1):
     # Load model for the current epoch (assumed to be implemented)
     panda.load_model(epoch)

@@ -296,10 +296,7 @@ def train():
     validation_losses = []
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
-
-    lambda_func = lambda epoch: 0.5 ** (epoch // SCHEDULER_STEP_SIZE) if epoch < 8 else 1
-
-    scheduler = optim.lr_scheduler.LambdaLR(optimizer, lr_lambda=lambda_func)
+    scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=SCHEDULER_STEP_SIZE, gamma=0.5)
 
     print(MODEL_PATH)
 
