@@ -1,17 +1,13 @@
 import torch
 import torch.nn as nn
 import torch.optim as optim
-from torch.utils.data import DataLoader, Dataset, Sampler, random_split
-from torchvision.io import read_image
+from torch.utils.data import DataLoader, Sampler, random_split
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
-from utils import get_image_path, get_depth_path
 import math
-from collections import OrderedDict
 from config import *
 from training_utils import *
-
 
 
 class ImageLayer(nn.Module):
@@ -50,74 +46,20 @@ class ImageLayer(nn.Module):
         x = x.view(batch_size, number_of_images, -1)
 
         return x
-    
-class CrossViewAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads, mlp_hidden_dim):
-        super(CrossViewAttention, self).__init__()
-        
-        self.layer_norm = nn.LayerNorm(embed_dim)
-        
-        self.q_linear1 = nn.Linear(embed_dim, embed_dim)
-        self.k_linear2 = nn.Linear(embed_dim, embed_dim)
-        self.v_linear2 = nn.Linear(embed_dim, embed_dim)
-        
-        self.q_linear2 = nn.Linear(embed_dim, embed_dim)
-        self.k_linear1 = nn.Linear(embed_dim, embed_dim)
-        self.v_linear1 = nn.Linear(embed_dim, embed_dim)
-        
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=0.1)
-        
-        self.mlp1 = nn.Sequential(
-            nn.Linear(embed_dim, mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_dim, embed_dim)
-        )
-        
-        self.mlp2 = nn.Sequential(
-            nn.Linear(embed_dim, mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_dim, embed_dim)
-        )
-
-    def forward(self, z1, z2):
-        ln_z1 = self.layer_norm(z1)
-        ln_z2 = self.layer_norm(z2)
-
-        q1 = self.q_linear1(ln_z1)
-        k2 = self.k_linear2(ln_z2)
-        v2 = self.v_linear2(ln_z2)
-
-        q2 = self.q_linear2(ln_z2)
-        k1 = self.k_linear1(ln_z1)
-        v1 = self.v_linear1(ln_z1)
-
-        attn_output1, _ = self.attention(q1, k2, v2)
-        attn_output2, _ = self.attention(q2, k1, v1)
-
-        ln_attn_output1 = self.layer_norm(z1 + attn_output1)
-        ln_attn_output2 = self.layer_norm(z2 + attn_output2)
-
-        h1 = self.mlp1(ln_attn_output1)
-        h2 = self.mlp2(ln_attn_output2)
-
-        combined_output = h1 + h2
-        
-        
-        return combined_output
-
-import torch
-import torch.nn as nn
 
 class Network(nn.Module):
     def __init__(self, no_cameras, device):
         super(Network, self).__init__()
         self.device = device
         self.no_cameras = no_cameras
-
+        
         self.conv_layers = nn.ModuleList([ImageLayer(SEQUENCE_LENGTH * NETWORK_IMAGE_LAYER_SIZE).to(device) for _ in range(no_cameras)])
-        self.cross_view_attention = CrossViewAttention(256, 8, 512).to(device)
-
+    
+        conv_output_size = 256 * no_cameras
         hidden_size = 256
+
+        self.combine_layer = nn.Linear(conv_output_size, hidden_size)
+
         layer_positions = hidden_size + 7
 
         self.mlp = nn.Sequential(
@@ -131,86 +73,21 @@ class Network(nn.Module):
         )
 
     def forward(self, x, positions):
-        image_output = [self.conv_layers[idx](input) for idx, input in enumerate(x)]
-        image_output = [output.squeeze(1) for output in image_output]
+        image_output = torch.tensor([], device=self.device)
 
-        if self.no_cameras == 1:
-            combined_output = image_output[0]
-        elif self.no_cameras == 2:
-            combined_output = self.cross_view_attention(image_output[0], image_output[1])
-        elif self.no_cameras == 3:
-            attention_output_1 = self.cross_view_attention(image_output[0], image_output[1])
-            attention_output_2 = self.cross_view_attention(image_output[1], image_output[2])
-            attention_output_3 = self.cross_view_attention(image_output[2], image_output[0])
-            combined_output = (attention_output_1 + attention_output_2 + attention_output_3) / 3
+        for idx, input in enumerate(x):
 
-        combined_output = combined_output.squeeze(1)
-        output = torch.cat((combined_output, positions), dim=1)
+            input = self.conv_layers[idx](input)
+            
+            image_output = torch.concat((image_output, input), dim = 2)
+
+        if len(x) > 1:
+            image_output = self.combine_layer(image_output.squeeze(1))
+            image_output = torch.relu(image_output)
+        
+        output = torch.concat((image_output.squeeze(1), positions), dim=1)
         
         return self.mlp(output)
-
-
-# class EpisodeBatchSampler(Sampler):
-#     def __init__(self, label_file, batch_size, split=0.85, train=True, random=False):
-#         self.labels = torch.load(label_file)
-#         self.batch_size = batch_size
-#         self.train = train
-#         self.random = random
-
-#         # Splitting the episodes into training and validation sets
-#         episodes = list(self.labels.keys())
-#         split_idx = int(len(episodes) * split)
-        
-#         if train:
-#             self.episodes = episodes[:split_idx]
-#         else:
-#             self.episodes = episodes[split_idx:]
-
-#         # Map (episode, sample) pairs to dataset indices
-#         self.dataset_indices = self._create_dataset_indices()
-        
-#         self.shuffle_episodes()
-        
-
-#     def shuffle_episodes(self):
-#         np.random.shuffle(self.episodes)
-#         self.padded_batches = []
-#         self.prepare_batches()
-
-#     def _create_dataset_indices(self):
-#         episode_sample_pairs = [
-#             (episode, sample) for episode, samples in self.labels.items() \
-#                 for sample in samples.keys()
-#         ]
-#         return {pair: idx for idx, pair in enumerate(episode_sample_pairs)}
-
-#     def prepare_batches(self):
-#         num_batches = math.ceil(len(self.episodes) / self.batch_size)
-
-#         for batch_idx in range(num_batches):
-#             batch_episodes = self.episodes[batch_idx * self.batch_size:(batch_idx + 1) * self.batch_size]
-#             max_samples = max(len(self.labels[episode]) for episode in batch_episodes)
-
-#             batch = []
-#             for sample_idx in range(max_samples):
-#                 sample_batch = []
-#                 for episode in batch_episodes:
-#                     samples = list(self.labels[episode].keys())
-#                     if sample_idx < len(samples):
-#                         sample = samples[sample_idx]
-#                         idx = self.dataset_indices[(episode, sample)]
-#                         sample_batch.append(idx)
-#                 batch.append(sample_batch)
-#             self.padded_batches.extend(batch)
-
-#     def __iter__(self):
-#         for batch in self.padded_batches:
-#             yield batch
-
-#     def __len__(self):
-#         return len(self.padded_batches)
-
-
 
 class EpisodeBatchSampler(Sampler):
     def __init__(self, labels, batch_size, split=0.85, train=True, random=False):
@@ -413,6 +290,6 @@ def train():
     plt.show(block=True)
 
 if __name__ == "__main__":
-    if USE_LSTM:
+    if USE_TRANSFORMERS or USE_LSTM:
         raise ValueError("This network type should be used only when both use_transformers and use_lstm are false.")
     train()

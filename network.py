@@ -6,6 +6,7 @@ from torchvision.io import read_image
 import matplotlib.pyplot as plt
 import numpy as np
 from tqdm import tqdm
+from collections import deque
 from utils import get_image_path, get_depth_path
 import math
 
@@ -61,7 +62,6 @@ class Network(nn.Module):
         conv_output_size_no_lstm = conv_output_size * SEQUENCE_LENGTH
         hidden_size_no_lstm = self.ff_hidden_size * no_cameras
 
-        
         last_layer_size = self.ff_hidden_size + 7
 
         if USE_LSTM:
@@ -69,7 +69,7 @@ class Network(nn.Module):
             self.lstm = nn.LSTM(input_size=lstm_input_size, hidden_size=self.ff_hidden_size, num_layers=LSTM_LAYERS, batch_first=True)
         else:
             self.fc1 = nn.Linear(conv_output_size_no_lstm, hidden_size_no_lstm)
-        self.fc2 = nn.Linear(last_layer_size, 15)  # 7 velocities + 2 gripper action + 3 cube positions + 3 end effector positions
+        self.fc2 = nn.Linear(last_layer_size, 14 if PREDICTION_TYPE == PredictionType.POSITION else 18)  # 7 velocities + 2 gripper action + 3 cube positions + 3 end effector positions
 
     def forward(self, x, positions):
         image_output = torch.tensor([], device=self.device)
@@ -95,23 +95,21 @@ class Network(nn.Module):
         return self.fc2(output)
     
 class EpisodeBatchSampler(Sampler):
-    def __init__(self, label_file, batch_size, split=0.85, train=True, random=False):
-        self.labels = torch.load(label_file)
+    def __init__(self, labels, batch_size, split=0.85, train=True, random=False):
+        self.labels = labels
         self.batch_size = batch_size
         self.train = train
         self.random = random
+        self.dataset_indices = self._create_dataset_indices()
 
-        # Splitting the episodes into training and validation sets
         episodes = list(self.labels.keys())
         split_idx = int(len(episodes) * split)
         
-        if train:
+        if self.train:
             self.episodes = episodes[:split_idx]
         else:
             self.episodes = episodes[split_idx:]
 
-        # Map (episode, sample) pairs to dataset indices
-        self.dataset_indices = self._create_dataset_indices()
         self.shuffle_episodes()
 
     def shuffle_episodes(self):
@@ -145,6 +143,22 @@ class EpisodeBatchSampler(Sampler):
                              for episode in self.episodes)
         return total_samples
 
+class ImageCache:
+    def __init__(self, max_size):
+        self.cache = {}
+        self.order = deque()
+        self.max_size = max_size
+
+    def get(self, path):
+        return self.cache.get(path)
+
+    def put(self, path, tensor):
+        if path not in self.cache:
+            if len(self.order) >= self.max_size:
+                oldest = self.order.pop()
+                del self.cache[oldest]
+            self.order.appendleft(path)
+        self.cache[path] = tensor
 
 class CustomImageDataset(Dataset):
     def __init__(self, label_file, device):
@@ -157,6 +171,8 @@ class CustomImageDataset(Dataset):
                 for sample in list(samples.keys())[SEQUENCE_LENGTH - 1:]
         ]
 
+        self.image_cache = ImageCache(max_size=SEQUENCE_LENGTH * BATCH_SIZE)
+
     def __len__(self):
         return len(self.episode_sample_pairs)
 
@@ -167,34 +183,54 @@ class CustomImageDataset(Dataset):
         for camera in self.cameras:
             sample_images = []
             for i in range(SEQUENCE_LENGTH - 1, -1, -1):
-                # if sample - i >= 0:
                 if USE_DEPTH:
                     depth_path = get_depth_path(camera, episode, sample - i)
-                    depth_data = torch.tensor(torch.load(depth_path))
-                    depth_data = depth_data.view(1, IMAGE_SIZE, IMAGE_SIZE)
-                    min_val = depth_data.min()
-                    max_val = depth_data.max()
-                    
-                    depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
+                    depth_data_normalized = self.image_cache.get(depth_path)
 
-                    sample_images.append(depth_data_normalized.to(self.device))
+                    if depth_data_normalized is None:
+                        depth_data = torch.tensor(torch.load(depth_path))
+                        depth_data = depth_data.view(1, IMAGE_SIZE, IMAGE_SIZE)
+
+                        min_val = depth_data.min()
+                        max_val = depth_data.max()
+                        depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
+
+                        self.image_cache.put(depth_path, depth_data_normalized.to(self.device))
+
+                    sample_images.append(depth_data_normalized)
                 else:
                     image_path = get_image_path(camera, episode, sample - i)
-                    img = read_image(image_path).to(self.device, dtype=torch.float)
+                    img = self.image_cache.get(image_path)
+
+                    if img is None:
+                        img = read_image(image_path).to(self.device, dtype=torch.float)
+                        self.image_cache.put(image_path, img)
+
                     sample_images.append(img)
             inputs.append(torch.concat(sample_images, dim=0))
         
         label = torch.tensor(self.labels[episode][sample]["labels"]).to(self.device)
         positions = torch.tensor(self.labels[episode][sample]["positions"]).to(self.device)
+
+        task = self.labels[episode][sample]["task"]
+        task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3).to(self.device)  # Adjust task to zero-based
+        label = torch.cat((label[:-8], task_one_hot.float(), label[-8:]), dim=0)
+
         return inputs, positions, label
 
 
 def calculate_loss(criterion, outputs, labels):
-    loss_1 = criterion(outputs[:, :7], labels[:, :7])
-    loss_2 = criterion(outputs[:, 7:9], labels[:, 7:9])
-    loss_3 = criterion(outputs[:, 9:12], labels[:, 9:12])
-    loss_4 = criterion(outputs[:, 12:15], labels[:, 12:15])
-    return loss_1 + loss_2 + loss_3 + loss_4
+    if PREDICTION_TYPE == PredictionType.POSITION:
+        loss_1 = criterion(outputs[:, :3], labels[:, 7:10])
+    else:
+        loss_1 = criterion(outputs[:, :7], labels[:, :7])
+
+    task_loss = criterion(outputs[:, -11:-8], labels[:, -11:-8])
+    loss_2 = criterion(outputs[:, -8:-6], labels[:, -8:-6])
+    loss_3 = criterion(outputs[:, -6:-3], labels[:, -6:-3])
+    loss_4 = criterion(outputs[:, -3:], labels[:, -3:])
+
+    return loss_1 + loss_2 + loss_3 + loss_4 + task_loss
 
 
 def train():
@@ -211,6 +247,8 @@ def train():
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=SCHEDULER_STEP_SIZE, gamma=0.5)
 
+    print(MODEL_PATH)
+
     if TRAIN_MODEL_MORE:
         model.load_state_dict(torch.load(MODEL_PATH + '_' + str(STARTING_EPOCH) + '.pth', map_location=DEVICE))
         model.train()
@@ -225,10 +263,10 @@ def train():
 
     dataset = CustomImageDataset(SAMPLE_LABEL_PATH, device)
 
-    train_sampler = EpisodeBatchSampler(SAMPLE_LABEL_PATH, batch_size=BATCH_SIZE, random=False)
+    train_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train = True, random=False)
     train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=0)
 
-    valid_sampler = EpisodeBatchSampler(SAMPLE_LABEL_PATH, batch_size=BATCH_SIZE, train=False)
+    valid_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=False, random=False)
     valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=0)
 
     # Define loss function and optimizer

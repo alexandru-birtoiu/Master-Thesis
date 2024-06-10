@@ -3,6 +3,7 @@ from Task import Task
 from config import *
 import numpy as np
 import math
+from utils import check_distance
 
 class TaskStages(Enum):
     IDLE = 1
@@ -97,7 +98,7 @@ class InsertTask(Task):
         return self.state.value >= 4 and self.state.value <= 6
 
     def get_task_type(self):
-        return self.objectType.value
+        return [self.objectType.value, int(all(self.insertTrayPosition == INSERT_TRAY_POSITIONS[0]))]
 
     def randomize_task(self):
         self.randx = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM)
@@ -143,3 +144,27 @@ class InsertTask(Task):
 
         self.bullet_client.changeVisualShape(self.insertTray, -1, rgbaColor=[0.01, 0.35, 0.5, 1])
         self.bodies = [self.object, self.insertTray]
+
+    def check_near_object(self, position, threshold=0.05):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.object)
+        return check_distance(np.array(object_pos), np.array(position), threshold)
+
+    def check_grasped_object(self, ee_pos, finger_target, threshold=0.03):
+        cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.object)
+        return finger_target == GRIPPER_CLOSE and check_distance(np.array(ee_pos), np.array(cube_pos), threshold)
+
+    def check_on_tray(self, threshold=0.1):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.object)
+        tray_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.insertTray)
+        offset_top = tray_pos + INSERT_TRAY_OFFSET_TOP
+        offset_bottom = tray_pos + INSERT_TRAY_OFFSET_BOTTOM
+        return (object_pos[1] > tray_pos[1] and
+                offset_bottom[0] - threshold <= object_pos[0] <= offset_top[0] + threshold and
+                offset_bottom[2] - threshold <= object_pos[2] <= offset_top[2] + threshold)
+
+    def check_in_position(self, threshold=0.11):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.object)
+        tray_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.insertTray)
+        insert_pos = tray_pos + self.tray_offset
+        insert_pos[1] = 0
+        return check_distance(insert_pos, object_pos, threshold)

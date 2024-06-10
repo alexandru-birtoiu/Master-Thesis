@@ -3,6 +3,7 @@ from Task import Task
 from config import *
 import numpy as np
 import math
+from utils import check_distance
 
 class TaskStages(Enum):
     IDLE = 1
@@ -13,9 +14,13 @@ class TaskStages(Enum):
     DROP_CUBE = 6
     DONE = 7
 
-MAX_CUBE_RANDOM_Y = 0.23
-CUBE_SCALING = 1.3
-MAX_RANDOM = 1.6
+MAX_CUBE_RANDOM_Y = 0.15
+CUBE_SCALING = 0.3
+MAX_RANDOM = 1
+
+TABLE_LENGTH = 0.4
+TABLE_WIDTH = 0.25
+ON_TABLE_HEIGHT = 0.15
 
 class CubeDepthTask(Task):
     def __init__(self, bullet_client, next_episode_callback=None):
@@ -62,25 +67,30 @@ class CubeDepthTask(Task):
     
     def is_gripper_closed(self):
         return self.state.value >= 4 and self.state.value < 6
+    
+    def get_task_type(self):
+        return []
 
     def randomize_task(self):
         self.randx = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM)
         self.randz = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM)
-
-        
+    
         # if self.randSize == 1:
         #     self.randSize = MAX_RANDOM
         #     self.randz = 0.06
-        #     self.randx = 0
+        #     self.randx = -0.035
         # else:
-        #     self.randSize = 1
+        #     self.randSize = 0
         #     self.randz = -0.06
-        #     self.randx = 0
+        #     self.randx = 0.035
         
-        self.randSize = np.random.uniform(1, MAX_RANDOM)
-        self.cubeScale = CUBE_SCALING * self.randSize
+        self.randSize = np.random.uniform(0, MAX_RANDOM)
+        self.cubeScale = 1.5  + CUBE_SCALING * self.randSize
 
-        self.randy = (2 - self.randSize) * MAX_CUBE_RANDOM_Y
+        self.randy = (1 - self.randSize) * MAX_CUBE_RANDOM_Y
+
+        # self.randSize = 1
+
 
     def randomize_environment(self):
         self.randomize_task()
@@ -95,7 +105,7 @@ class CubeDepthTask(Task):
         # Create a collision shape for the rectangular cuboid
         # halfExtents=[0.1, 0.1, cuboid_height / 2] to match the cube height
         cuboid_shape = self.bullet_client.createCollisionShape(self.bullet_client.GEOM_BOX, 
-                                                            halfExtents=[0.1, cuboid_height, 0.1])
+                                                            halfExtents=[0.05, cuboid_height, 0.05])
 
         # Create a multi-body for the rectangular cuboid
         self.transparent_cuboid = self.bullet_client.createMultiBody(baseMass=0,
@@ -129,3 +139,31 @@ class CubeDepthTask(Task):
 
         
         self.bodies = [self.cube, self.table, self.transparent_cuboid]
+
+    def check_near_object(self, position, threshold=0.05):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        return check_distance(np.array(object_pos), np.array(position), threshold)
+
+    def check_grasped_object(self, ee_pos, finger_target, threshold=0.03):
+        cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        return finger_target == GRIPPER_CLOSE and check_distance(np.array(ee_pos), np.array(cube_pos), threshold)
+
+    def above_table(self):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        table_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.table)
+        
+        within_length = (table_pos[2] - TABLE_LENGTH/2 <= object_pos[2] <= table_pos[2] + TABLE_LENGTH/2)
+        within_width = (table_pos[0] - TABLE_WIDTH/2 <= object_pos[0] <= table_pos[0] + TABLE_WIDTH/2)
+        
+        return within_length and within_width and (object_pos[1] > table_pos[1])
+
+    def on_table(self, threshold=0.05):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        table_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.table)
+        
+        within_length = (table_pos[2] - TABLE_LENGTH/2 <= object_pos[2] <= table_pos[2] + TABLE_LENGTH/2)
+        within_width = (table_pos[0] - TABLE_WIDTH/2 <= object_pos[0] <= table_pos[0] + TABLE_WIDTH/2)
+        
+        height_within_threshold = (abs(object_pos[1] - ON_TABLE_HEIGHT) <= threshold)
+        
+        return within_length and within_width and height_within_threshold

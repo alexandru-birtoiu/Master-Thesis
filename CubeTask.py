@@ -14,9 +14,8 @@ class TaskStages(Enum):
     DONE = 7
 
 class CubeTask(Task):
-    def __init__(self, bullet_client, flags, next_episode_callback=None):
+    def __init__(self, bullet_client, next_episode_callback=None):
         super().__init__(bullet_client)
-        self.flags = flags
         self.bullet_client = bullet_client
         self.start_position = PLANE_START_POSITION
         self.bodies = []
@@ -60,7 +59,10 @@ class CubeTask(Task):
 
     def randomize_task(self):
         self.randx = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM)
-        self.randz = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM)    
+        self.randz = np.random.uniform(-MAX_CUBE_RANDOM, MAX_CUBE_RANDOM) 
+
+    def get_task_type(self):
+        return []   
 
     def randomize_environment(self):
         self.randomize_task()
@@ -72,12 +74,39 @@ class CubeTask(Task):
                                                     self.start_position[1], 
                                                     self.start_position[2] + self.randz]), 
                                                 legoOrientation, 
-                                                globalScaling=1.5, 
-                                                flags=self.flags)
+                                                globalScaling=1.5)
         self.bullet_client.changeVisualShape(self.lego, -1, rgbaColor=[1, 0, 0, 1])
 
         tableOrientation = self.bullet_client.getQuaternionFromEuler([-math.pi / 2, math.pi / 2, 0])
         self.table = self.bullet_client.loadURDF("table/table.urdf", np.array([-0.5, 0.0, -0.2]), tableOrientation,
-                                                 globalScaling=0.25, flags=self.flags)
+                                                 globalScaling=0.25)
         
         self.bodies = [self.lego, self.table]
+
+    def check_near_object(self, position, threshold=0.05):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        return check_distance(np.array(object_pos), np.array(position), threshold)
+
+    def check_grasped_object(self, ee_pos, finger_target, threshold=0.03):
+        cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        return finger_target == GRIPPER_CLOSE and check_distance(np.array(ee_pos), np.array(cube_pos), threshold)
+
+    def above_table(self):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        table_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.table)
+        
+        within_length = (table_pos[2] - TABLE_LENGTH/2 <= object_pos[2] <= table_pos[2] + TABLE_LENGTH/2)
+        within_width = (table_pos[0] - TABLE_WIDTH/2 <= object_pos[0] <= table_pos[0] + TABLE_WIDTH/2)
+        
+        return within_length and within_width and (object_pos[1] > table_pos[1])
+
+    def on_table(self, threshold=0.05):
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        table_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.table)
+        
+        within_length = (table_pos[2] - TABLE_LENGTH/2 <= object_pos[2] <= table_pos[2] + TABLE_LENGTH/2)
+        within_width = (table_pos[0] - TABLE_WIDTH/2 <= object_pos[0] <= table_pos[0] + TABLE_WIDTH/2)
+        
+        height_within_threshold = (abs(object_pos[1] - ON_TABLE_HEIGHT) <= threshold)
+        
+        return within_length and within_width and height_within_threshold

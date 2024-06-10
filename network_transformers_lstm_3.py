@@ -141,7 +141,6 @@ class Network(nn.Module):
             nn.ReLU(),
             nn.Linear(128, 64),
             nn.ReLU(),
-            
         )
 
         self.lstm_input_size = 64
@@ -149,7 +148,7 @@ class Network(nn.Module):
 
         self.lstm = LayerNormLSTM(self.lstm_input_size, self.lstm_hidden, LSTM_LAYERS)
 
-        self.last = nn.Linear(self.lstm_hidden, 14 if PREDICTION_TYPE == PredictionType.POSITION else 18)
+        self.last = nn.Linear(self.lstm_hidden, NETWORK_OUTPUT_SIZE)
 
         # Register hidden states as buffers
         self._initialize_hidden_state_buffers()

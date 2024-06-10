@@ -28,3 +28,6 @@ class Task:
 
     def randomize_environment(self):
         raise NotImplementedError
+    
+    def get_task_type(self):
+        raise NotImplementedError

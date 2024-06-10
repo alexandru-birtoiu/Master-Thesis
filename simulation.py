@@ -4,12 +4,13 @@ import math
 import os
 from torchvision.io import read_image
 from config import *
-from network import Network as NetworkBase
-from network_transformers_lstm import Network as NetorkTransformers
+from network_base import Network as NetworkBase
+from network_transformers import Network as NetworkTransformers
+from network_transformers_lstm_3 import Network as NetworkTransformersLSTM
 import torch
 from PIL import Image
 from torchvision import transforms
-from utils import get_image_path
+from utils import get_image_path, check_distance
 from enum import Enum
 from CubeTask import CubeTask
 from InsertTask import InsertTask
@@ -41,7 +42,7 @@ class PandaSim(object):
         self.orn = self.bullet_client.getQuaternionFromEuler([math.pi / 2., math.pi / 2., 0.])
 
         self.control_dt = TIME_STEP
-        self.finger_target = 0
+        self.finger_target = GRIPPER_OPEN
 
         c = self.bullet_client.createConstraint(self.panda,
                                                 9,
@@ -59,13 +60,14 @@ class PandaSim(object):
 
         self.task = self.load_task(task_type)
         self.task.randomize_environment()
-        # self.task.randomize_environment()
+        
         
         self.t = 0.
         self.t_target = 0.
 
         self.prev_pos = []
-        self.current_target = np.array([])
+        self.current_target_1 = np.array([])
+        self.current_target_2 = np.array([])
 
         self.randx = 0
         self.randz = 0
@@ -75,28 +77,33 @@ class PandaSim(object):
         self.text_id_ee = -1
 
         self.steps = 0
+        self.episode = 0
+        self.sample_episode = 0
         
         if self.use_network:
             self.device = torch.device(DEVICE)
-            if USE_TRANSFORMERS:
-                self.model  = NetorkTransformers(len(ACTIVE_CAMERAS), self.device).to(self.device)
+            if USE_TRANSFORMERS and USE_LSTM:
+                self.model  = NetworkTransformersLSTM(len(ACTIVE_CAMERAS), self.device).to(self.device)
                 self.model.reset_hidden_states(1)
+            elif USE_TRANSFORMERS:
+                self.model  = NetworkTransformers(len(ACTIVE_CAMERAS), self.device).to(self.device)
             else:
                 self.model = NetworkBase(len(ACTIVE_CAMERAS), self.device).to(self.device)
-            self.model.load_state_dict(torch.load(MODEL_PATH + '_' + str(EPOCH) + '.pth'))
-            self.model.eval()
+            self.load_model(EPOCH)
             self.active_cameras = ACTIVE_CAMERAS
             self.create_folder('network')
             self.target = None
 
         else:
-            self.episode = 0
-            self.sample_episode = 0
-            self.active_cameras = ['cam1', "cam2", "ego"]
+            self.active_cameras = ['cam1', "cam2", "cam3", "ego"]
             for camera in self.active_cameras:
                 self.create_folder(camera)
         
         self.init_cameras()
+
+    def load_model(self, epoch):
+        self.model.load_state_dict(torch.load(MODEL_PATH + '_' + str(epoch) + '.pth'))
+        self.model.eval()
 
     def load_task(self, task_type):
         tasks = {
@@ -185,7 +192,9 @@ class PandaSim(object):
             current_state.append(vel)
             current_positions.append(pos)
 
-        current_state += self.current_target.tolist()
+        current_state += self.current_target_1.tolist()
+        current_state += self.current_target_2.tolist()
+
         current_state += ([1, 0] if self.task.is_gripper_closed() else [0, 1])
         cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.task.bodies[0])
 
@@ -210,9 +219,9 @@ class PandaSim(object):
         self.show_cube_pos(output[-6:-3], output[-3:])
 
         self.finger_target = GRIPPER_OPEN if output[-8] < output[-7] else GRIPPER_CLOSE
-        if PREDICTION_TYPE == PredictionType.POSITION: 
+        if PREDICTION_TYPE == PredictionType.POSITION or PREDICTION_TYPE == PredictionType.TARGET_POSITION: 
             target_pos = np.array(output[:3])
-
+            # print(output[3:6])
             pos = self.prev_pos
             diff = (self.prev_pos - target_pos) * ROBOT_SPEED
             self.prev_pos = self.prev_pos - diff
@@ -294,7 +303,6 @@ class PandaSim(object):
                 self.sample_episode += 1
 
             return self.sample_episode - 1
-
     
     def get_network_output(self, positions):
         inputs = []
@@ -302,40 +310,32 @@ class PandaSim(object):
             inputs.append(torch.cat(self.images[camera], dim=0).unsqueeze(0).to(self.device, dtype=torch.float))
         positions = torch.tensor(positions).to(self.device, dtype=torch.float)
 
-        output = (self.model(inputs, positions.unsqueeze(0)).squeeze()).tolist()
-
+        if USE_TRANSFORMERS and USE_LSTM:
+            output = (self.model(inputs, positions.unsqueeze(0), torch.tensor([True])).squeeze()).tolist()
+        else:
+            output = (self.model(inputs, positions.unsqueeze(0)).squeeze()).tolist()
+        
         return output
-    
-    # def get_network_output_lstm(self, positions):
-    #     inputs = []
-    #     for camera in self.active_cameras:
-    #         inputs.append(self.images[camera][-1].unsqueeze(0).to(self.device, dtype=torch.float))
-
-    #     positions = torch.tensor(positions).to(self.device, dtype=torch.float)
-
-    #     output = (self.model(inputs, positions.unsqueeze(0)).squeeze()).tolist()
-
-    #     return output
 
     def step_network(self):
         if self.capture_images() == -1:
             return
-        # if self.steps % 10 == 0 or self.target is None:
+    
         _, positions = self.get_state()
         self.target = self.get_network_output(positions)
         
         self.move_robot_network(self.target)
 
         self.remove_oldest_images()
-        
-    def check_distance(self, point1, point2):
-        distance = np.linalg.norm(point1 - point2)
-        return distance < REACHED_TARGET_THRESHOLD
 
     def next_episode(self):
         self.episode += 1
         self.steps = 0
         self.sample_episode = 0
+        if self.use_network:
+            if USE_TRANSFORMERS and USE_LSTM:
+                self.model.reset_hidden_states(1)
+        
         for body in self.task.bodies:
             self.bullet_client.removeBody(body)
         self.bullet_client.restoreState(self.initial_state_id)
@@ -367,14 +367,16 @@ class PandaSim(object):
                 self.task.next_state()
                 self.t = 0
             self.prev_pos = curent_pos
-            self.current_target = curent_pos
+            self.current_target_1 = curent_pos
+            self.current_target_2 = curent_pos
         else:
-            if self.check_distance(curent_pos, self.task.target_pos):
+            if check_distance(curent_pos, self.task.target_pos, REACHED_TARGET_THRESHOLD):
                 self.task.next_state()
             else:
-                self.current_target = self.task.target_pos
-                
                 pos = self.prev_pos
+
+                self.current_target_1 = pos
+                self.current_target_2 = self.task.target_pos
                 diff = (self.prev_pos - self.task.target_pos) * ROBOT_SPEED
                 self.prev_pos = self.prev_pos - diff
 

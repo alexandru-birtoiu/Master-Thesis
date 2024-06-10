@@ -43,7 +43,7 @@ if GATHER_DATA_MORE:
 
     no_episodes += STARTING_EPISODES
     
-    print('Previous number of episodes: ' + str(len(sample_dict.keys()) - 1))
+    print('Previous number of episodes: ' + str(len(sample_dict.keys())))
 
 sample_dict[episode] = {}
 
@@ -70,7 +70,7 @@ while episode < no_episodes:
 
             labels, positions = panda.get_state()
             
-            panda.show_cube_pos(labels[-6:-3], labels[-3:])
+            panda.show_cube_pos(labels[-6:-3], labels[7:10])
 
             task_data = panda.task.get_task_type()
         
@@ -83,7 +83,7 @@ while episode < no_episodes:
             time.sleep(TIME_STEP)
     else:
         state, positions = panda.get_state()
-        print(panda.task.state.name + str(panda.task.is_moving()))
+        print(panda.task.state.name + ' ' + str(panda.task.is_moving()))
         print(panda.task.is_gripper_closed())
         if panda.task.is_moving():
             panda.show_cube_pos(state[7:10], state[-3:])
