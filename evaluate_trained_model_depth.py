@@ -73,7 +73,7 @@ for epoch in range(2, EPOCH + 1):
     }
 
     start_time = time.time()
-    time_limit = 15  # 30 seconds
+    time_limit = 15 
     episode_count = 0
     max_episodes = 30
     full_checkpoints_count = 0
