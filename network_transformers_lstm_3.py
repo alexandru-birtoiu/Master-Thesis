@@ -375,9 +375,10 @@ class CustomImageDataset(Dataset):
         positions = torch.tensor(self.labels[episode][sample]["positions"]).to(self.device)
 
         #TODO: ADD TASK LABEL FOR TRAY POSITION
-        task = self.labels[episode][sample]["task"][0]
-        task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3).to(self.device)  # Adjust task to zero-based
-        label = torch.cat((label[:-8], task_one_hot.float(), label[-8:]), dim=0)
+        if USE_TASK_LOSS:
+            task = self.labels[episode][sample]["task"][0]
+            task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3).to(self.device)  # Adjust task to zero-based
+            label = torch.cat((label[:-8], task_one_hot.float(), label[-8:]), dim=0)
 
         padding_indicator = 0
         return inputs, positions, label, padding_indicator, sequential, episode
