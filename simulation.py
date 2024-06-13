@@ -18,8 +18,8 @@ from CubeDepthTask import CubeDepthTask
 from TeddyBearTask import TeddyBearTask
 
 transform = transforms.Compose([
-    transforms.ToTensor(),
-    lambda x: x*255
+    transforms.ToTensor()
+    # lambda x: x*255
 ])   
 
 class PandaSim(object):
@@ -286,7 +286,7 @@ class PandaSim(object):
         elif IMAGE_TYPE == ImageType.RGBD:
             depth_data = torch.tensor(depthim)
             depth_data_normalized = normalize_depth_data(depth_data).to(self.device, dtype=torch.float)
-            rgb_data = transform(rgbim).to(self.device, dtype=torch.float)
+            rgb_data = normalize_image(transform(rgbim).to(self.device, dtype=torch.float))
             image_to_store = torch.cat((rgb_data, depth_data_normalized), dim=0)
 
             rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
