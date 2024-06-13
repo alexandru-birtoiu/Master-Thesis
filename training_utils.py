@@ -44,50 +44,48 @@ class CustomImageDataset(Dataset):
         for camera in self.cameras:
             sample_images = []
             for i in range(SEQUENCE_LENGTH - 1, -1, -1):
-                    if IMAGE_TYPE == ImageType.D:
-                        depth_path = get_depth_path(camera, episode, sample - i)
-                        depth_data_normalized = self.image_cache.get(depth_path)
+                if IMAGE_TYPE == ImageType.D:
+                    depth_path = get_depth_path(camera, episode, sample - i)
+                    depth_data_normalized = self.image_cache.get(depth_path)
 
-                        if depth_data_normalized is None:
-                            depth_data = torch.tensor(torch.load(depth_path))
-                            depth_data_normalized = normalize_depth_data(depth_data)
-                            self.image_cache.put(depth_path, depth_data_normalized)
+                    if depth_data_normalized is None:
+                        depth_data = torch.tensor(torch.load(depth_path))
+                        depth_data_normalized = normalize_depth_data(depth_data)
+                        self.image_cache.put(depth_path, depth_data_normalized)
 
-                        sample_images.append(depth_data_normalized)
+                    sample_images.append(depth_data_normalized)
 
-                    elif IMAGE_TYPE == ImageType.RGB:
-                        image_path = get_image_path(camera, episode, sample - i)
-                        img = self.image_cache.get(image_path)
+                elif IMAGE_TYPE == ImageType.RGB:
+                    image_path = get_image_path(camera, episode, sample - i)
+                    img = self.image_cache.get(image_path)
 
-                        if img is None:
-                            img = read_image(image_path).to(dtype=torch.float)
-                            self.image_cache.put(image_path, img)
+                    if img is None:
+                        img = read_image(image_path).to(dtype=torch.float)
+                        img = normalize_image(img)  # Normalize the RGB image
+                        self.image_cache.put(image_path, img)
 
-                        sample_images.append(img)
+                    sample_images.append(img)
 
-                    elif IMAGE_TYPE == ImageType.RGBD:
-                        image_path = get_image_path(camera, episode, sample - i)
-                        depth_path = get_depth_path(camera, episode, sample - i)
+                elif IMAGE_TYPE == ImageType.RGBD:
+                    image_path = get_image_path(camera, episode, sample - i)
+                    depth_path = get_depth_path(camera, episode, sample - i)
 
-                        img = self.image_cache.get(image_path)
-                        depth_data_normalized = self.image_cache.get(depth_path)
+                    img = self.image_cache.get(image_path)
+                    depth_data_normalized = self.image_cache.get(depth_path)
 
-                        if img is None:
-                            img = read_image(image_path).to(dtype=torch.float)
-                            self.image_cache.put(image_path, img)
+                    if img is None:
+                        img = read_image(image_path).to(dtype=torch.float)
+                        img = normalize_image(img)  # Normalize the RGB image
+                        self.image_cache.put(image_path, img)
 
-                        if depth_data_normalized is None:
-                            depth_data = torch.tensor(torch.load(depth_path))
-                            depth_data_normalized = normalize_depth_data(depth_data)
-                            self.image_cache.put(depth_path, depth_data_normalized)
+                    if depth_data_normalized is None:
+                        depth_data = torch.tensor(torch.load(depth_path))
+                        depth_data_normalized = normalize_depth_data(depth_data)
+                        self.image_cache.put(depth_path, depth_data_normalized)
 
-                        # Normalize the image
-                        img = normalize_image(img)
-
-        
-                        # Add the depth data as the 4th channel
-                        rgbd_data = torch.cat((img, depth_data_normalized), dim=0)
-                        sample_images.append(rgbd_data)
+                    # Add the depth data as the 4th channel
+                    rgbd_data = torch.cat((img, depth_data_normalized), dim=0)
+                    sample_images.append(rgbd_data)
 
             if IMAGE_SIZE_TRAIN != IMAGE_SIZE:
                 resized_images = [resize_tensor(image, (IMAGE_SIZE_TRAIN, IMAGE_SIZE_TRAIN)) for image in sample_images]

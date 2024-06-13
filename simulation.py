@@ -280,14 +280,17 @@ class PandaSim(object):
             image_to_store = depth_data_normalized.to(self.device, dtype=torch.float)
         
         elif IMAGE_TYPE == ImageType.RGB:
-            image_to_store = transform(rgbim).to(self.device, dtype=torch.float)
+            rgb_data = transform(rgbim).to(self.device, dtype=torch.float)
+            rgb_data_normalized = normalize_image(rgb_data)  # Normalize the RGB image
+            image_to_store = rgb_data_normalized
             rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
 
         elif IMAGE_TYPE == ImageType.RGBD:
             depth_data = torch.tensor(depthim)
             depth_data_normalized = normalize_depth_data(depth_data).to(self.device, dtype=torch.float)
-            rgb_data = normalize_image(transform(rgbim).to(self.device, dtype=torch.float))
-            image_to_store = torch.cat((rgb_data, depth_data_normalized), dim=0)
+            rgb_data = transform(rgbim).to(self.device, dtype=torch.float)
+            rgb_data_normalized = normalize_image(rgb_data)  # Normalize the RGB image
+            image_to_store = torch.cat((rgb_data_normalized, depth_data_normalized), dim=0)
 
             rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
 
@@ -296,7 +299,7 @@ class PandaSim(object):
 
         # Apply resizing to the image and store it
         resized_image = resize_tensor(image_to_store, (IMAGE_SIZE_TRAIN, IMAGE_SIZE_TRAIN))
-        self.images[key].append(resized_image)  
+        self.images[key].append(resized_image)
 
     def capture_images(self):
         self.update_ego_camera()
