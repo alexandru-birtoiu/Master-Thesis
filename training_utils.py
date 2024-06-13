@@ -23,9 +23,8 @@ class ImageCache:
         self.cache[path] = tensor
 
 class CustomImageDataset(Dataset):
-    def __init__(self, labels, device):
+    def __init__(self, labels):
         self.labels = labels
-        self.device = device
         self.cameras = ACTIVE_CAMERAS
 
         self.episode_sample_pairs = [
@@ -51,7 +50,7 @@ class CustomImageDataset(Dataset):
 
                         if depth_data_normalized is None:
                             depth_data = torch.tensor(torch.load(depth_path))
-                            depth_data_normalized = normalize_depth_data(depth_data).to(self.device)
+                            depth_data_normalized = normalize_depth_data(depth_data)
                             self.image_cache.put(depth_path, depth_data_normalized)
 
                         sample_images.append(depth_data_normalized)
@@ -61,7 +60,7 @@ class CustomImageDataset(Dataset):
                         img = self.image_cache.get(image_path)
 
                         if img is None:
-                            img = read_image(image_path).to(self.device, dtype=torch.float)
+                            img = read_image(image_path).to(dtype=torch.float)
                             self.image_cache.put(image_path, img)
 
                         sample_images.append(img)
@@ -74,12 +73,12 @@ class CustomImageDataset(Dataset):
                         depth_data_normalized = self.image_cache.get(depth_path)
 
                         if img is None:
-                            img = read_image(image_path).to(self.device, dtype=torch.float)
+                            img = read_image(image_path).to(dtype=torch.float)
                             self.image_cache.put(image_path, img)
 
                         if depth_data_normalized is None:
                             depth_data = torch.tensor(torch.load(depth_path))
-                            depth_data_normalized = normalize_depth_data(depth_data).to(self.device)
+                            depth_data_normalized = normalize_depth_data(depth_data)
                             self.image_cache.put(depth_path, depth_data_normalized)
 
                         # Concatenate RGB and depth images
@@ -89,13 +88,13 @@ class CustomImageDataset(Dataset):
             resized_images = [resize_tensor(image, (IMAGE_SIZE_TRAIN, IMAGE_SIZE_TRAIN)) for image in sample_images]
             inputs.append(torch.cat(resized_images, dim=0))
         
-        label = torch.tensor(self.labels[episode][sample]["labels"]).to(self.device)
-        positions = torch.tensor(self.labels[episode][sample]["positions"]).to(self.device)
+        label = torch.tensor(self.labels[episode][sample]["labels"])
+        positions = torch.tensor(self.labels[episode][sample]["positions"])
 
         #TODO: ADD TASK LABEL FOR TRAY POSITION
         if USE_TASK_LOSS:
             task = self.labels[episode][sample]["task"][0]
-            task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3).to(self.device)  # Adjust task to zero-based
+            task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3)  # Adjust task to zero-based
             label = torch.cat((label[:-8], task_one_hot.float(), label[-8:]), dim=0)
 
         return inputs, positions, label
