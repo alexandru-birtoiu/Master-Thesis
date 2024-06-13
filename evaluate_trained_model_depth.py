@@ -132,7 +132,9 @@ best_epoch_results = all_epoch_results[best_epoch]
 checkpoint_labels = list(best_epoch_results['checkpoints_count'].keys())
 checkpoint_values = list(best_epoch_results['checkpoints_count'].values())
 
-model_name = MODEL_PATH.split('/')[-1] + '_' + str(best_epoch)
+task_name = TASK_TYPE.name
+model_name = task_name + ' _' + MODEL_PATH.split('/')[-1] + '_' + str(best_epoch)
+
 
 plt.bar(checkpoint_labels, checkpoint_values, edgecolor='black')
 plt.xlabel('Checkpoints')
@@ -149,7 +151,7 @@ plt.plot(epochs, full_checkpoints_counts, marker='o')
 plt.xlabel('Epoch')
 plt.ylabel('Number of Full Checkpoints')
 plt.title('Number of Full Checkpoints per Epoch')
-plt.savefig(f'evaluation/full_checkpoints_per_epoch.png')
+plt.savefig(f'evaluation/full_checkpoints_per_epoch_{model_name}.png')
 plt.show(block=True)
 
 # Save all data in one dictionary

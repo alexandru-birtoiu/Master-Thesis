@@ -16,13 +16,13 @@ def reset_simulation(panda, checkpoints, checkpoints_count):
     checkpoints.update({
         "near_object": False,
         "grasped_object": False,
-        "on_tray": False,
-        "in_position": False
+        "above_table": False,
+        "on_table": False
     })
     return time.time()
 
 def update_checkpoints(checkpoints, checkpoint_name):
-    checkpoint_order = ["near_object", "grasped_object", "on_tray", "in_position"]
+    checkpoint_order = ["near_object", "grasped_object", "above_table", "on_table"]
     for cp in checkpoint_order:
         checkpoints[cp] = True
         if cp == checkpoint_name:
@@ -46,7 +46,7 @@ p.setGravity(0, -9.8, 0)
 # Initialize the Panda simulation
 panda = panda_sim.PandaSim(p, True, TASK_TYPE)
 panda.control_dt = TIME_STEP
-print(MODEL_PATH)
+
 # Initialize variables
 all_epoch_results = {}
 max_full_checkpoints = 0
@@ -54,26 +54,26 @@ best_epoch = 0
 
 print(MODEL_PATH)
 
-for epoch in range(15, EPOCH + 1):
+for epoch in range(2, EPOCH + 1):
     # Load model for the current epoch (assumed to be implemented)
     panda.load_model(epoch)
-    print(f'Loading new model ..{epoch}')
+    print('Loading new model ..')
     
     checkpoints = {
         "near_object": False,
         "grasped_object": False,
-        "on_tray": False,
-        "in_position": False
+        "above_table": False,
+        "on_table": False
     }
     checkpoints_count = {
         "near_object": 0,
         "grasped_object": 0,
-        "on_tray": 0,
-        "in_position": 0
+        "above_table": 0,
+        "on_table": 0
     }
 
     start_time = time.time()
-    time_limit = 15  # 30 seconds
+    time_limit = 15 
     episode_count = 0
     max_episodes = 30
     full_checkpoints_count = 0
@@ -96,17 +96,17 @@ for epoch in range(15, EPOCH + 1):
             update_checkpoints(checkpoints, "grasped_object")
             print("Checkpoint 2: Robot has grasped the object.")
 
-        if not checkpoints["on_tray"] and panda.task.check_on_tray():
-            update_checkpoints(checkpoints, "on_tray")
-            print("Checkpoint 3: Object is on the tray.")
+        if not checkpoints["above_table"] and panda.task.above_table():
+            update_checkpoints(checkpoints, "above_table")
+            print("Checkpoint 3: Object is above the table.")
         
-        if not checkpoints["in_position"] and panda.task.check_in_position():
-            update_checkpoints(checkpoints, "in_position")
-            print("Checkpoint 4: Object is in the correct position.")
+        if not checkpoints["on_table"] and panda.task.on_table():
+            update_checkpoints(checkpoints, "on_table")
+            print("Checkpoint 4: Object is on the table.")
 
         # Check if the final checkpoint is reached within the time limit
         elapsed_time = time.time() - start_time
-        if checkpoints["in_position"]:
+        if checkpoints["on_table"]:
             full_checkpoints_count += 1
             print(f"All checkpoints reached in {elapsed_time:.2f} seconds.")
             start_time = reset_simulation(panda, checkpoints, checkpoints_count)

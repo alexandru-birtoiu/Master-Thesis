@@ -276,7 +276,7 @@ def train():
             display_epoch = starting_epoch + epoch + 1
             model.train()  # switch back to training mode
             sample = 0
-            dataset.augment = True
+        
 
             for i, data in tqdm(enumerate(train_dataloader, 0), leave=False):
                 inputs, positions, labels = data
@@ -313,7 +313,6 @@ def train():
 
             pbar.write(f'STARTING VALIDATION')
 
-            dataset.augment = False
             # Validation
             sample = 0
             model.eval()  # switch to evaluation mode

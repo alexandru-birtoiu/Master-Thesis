@@ -3,6 +3,7 @@ from Task import Task
 from config import *
 import numpy as np
 import math
+from utils import check_distance
 
 class TaskStages(Enum):
     IDLE = 1
@@ -12,6 +13,10 @@ class TaskStages(Enum):
     GO_TABLE = 5
     DROP_CUBE = 6
     DONE = 7
+
+TABLE_LENGTH = 0.4
+TABLE_WIDTH = 0.25
+ON_TABLE_HEIGHT = 0.15
 
 class CubeTask(Task):
     def __init__(self, bullet_client, next_episode_callback=None):
@@ -84,15 +89,15 @@ class CubeTask(Task):
         self.bodies = [self.lego, self.table]
 
     def check_near_object(self, position, threshold=0.05):
-        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.lego)
         return check_distance(np.array(object_pos), np.array(position), threshold)
 
     def check_grasped_object(self, ee_pos, finger_target, threshold=0.03):
-        cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        cube_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.lego)
         return finger_target == GRIPPER_CLOSE and check_distance(np.array(ee_pos), np.array(cube_pos), threshold)
 
     def above_table(self):
-        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.lego)
         table_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.table)
         
         within_length = (table_pos[2] - TABLE_LENGTH/2 <= object_pos[2] <= table_pos[2] + TABLE_LENGTH/2)
@@ -101,7 +106,7 @@ class CubeTask(Task):
         return within_length and within_width and (object_pos[1] > table_pos[1])
 
     def on_table(self, threshold=0.05):
-        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
+        object_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.lego)
         table_pos, _ = self.bullet_client.getBasePositionAndOrientation(self.table)
         
         within_length = (table_pos[2] - TABLE_LENGTH/2 <= object_pos[2] <= table_pos[2] + TABLE_LENGTH/2)
