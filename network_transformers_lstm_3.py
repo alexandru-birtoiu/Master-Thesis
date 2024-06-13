@@ -313,9 +313,8 @@ class EpisodeBatchSampler(Sampler):
         return len(self.batches)
 
 class CustomImageDataset(Dataset):
-    def __init__(self, labels, device):
+    def __init__(self, labels):
         self.labels = labels
-        self.device = device
         self.cameras = ACTIVE_CAMERAS
 
         self.episode_sample_pairs = [
@@ -333,9 +332,9 @@ class CustomImageDataset(Dataset):
 
         if idx is None:
             # Return a placeholder tensor and padding indicator for None index
-            inputs = [torch.zeros((4 * SEQUENCE_LENGTH, IMAGE_SIZE, IMAGE_SIZE), device=self.device) for _ in self.cameras]
-            positions = torch.zeros(7, device=self.device)
-            label = torch.zeros(24, device=self.device)  # Adjusted size for task one-hot encoding
+            inputs = [torch.zeros((4 * SEQUENCE_LENGTH, IMAGE_SIZE, IMAGE_SIZE)) for _ in self.cameras]
+            positions = torch.zeros(7)
+            label = torch.zeros(24)  # Adjusted size for task one-hot encoding
             padding_indicator = 1  # Indicates this is a padded sample
             return inputs, positions, label, padding_indicator, sequential, None
 
@@ -357,7 +356,7 @@ class CustomImageDataset(Dataset):
                         max_val = depth_data.max()
                         depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
 
-                        self.image_cache.put(depth_path, depth_data_normalized.to(self.device))
+                        self.image_cache.put(depth_path, depth_data_normalized)
 
                     sample_images.append(depth_data_normalized)
                 else:
@@ -365,19 +364,18 @@ class CustomImageDataset(Dataset):
                     img = self.image_cache.get(image_path)
 
                     if img is None:
-                        img = read_image(image_path).to(self.device, dtype=torch.float)
+                        img = read_image(image_path).to(dtype=torch.float)
                         self.image_cache.put(image_path, img)
 
                     sample_images.append(img)
             inputs.append(torch.concat(sample_images, dim=0))
         
-        label = torch.tensor(self.labels[episode][sample]["labels"]).to(self.device)
-        positions = torch.tensor(self.labels[episode][sample]["positions"]).to(self.device)
-
+        label = torch.tensor(self.labels[episode][sample]["labels"])
+        positions = torch.tensor(self.labels[episode][sample]["positions"])
         #TODO: ADD TASK LABEL FOR TRAY POSITION
         if USE_TASK_LOSS:
             task = self.labels[episode][sample]["task"][0]
-            task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3).to(self.device)  # Adjust task to zero-based
+            task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3)  # Adjust task to zero-based
             label = torch.cat((label[:-8], task_one_hot.float(), label[-8:]), dim=0)
 
         padding_indicator = 0
@@ -392,7 +390,7 @@ def collate_fn(batch):
     labels = torch.stack(labels, dim=0)
     padding_indicators = torch.tensor(padding_indicators, dtype=torch.float32)
 
-    sequentials = torch.tensor(sequentials).to(device=DEVICE) == 1
+    sequentials = torch.tensor(sequentials) == 1
 
     return inputs, positions, labels, padding_indicators, episodes, sequentials
 
@@ -420,6 +418,14 @@ def train():
             for i, data in tqdm(enumerate(dataloader, 0), leave=False):
                 inputs, positions, labels, padding_indicators, episodes, sequentials = data
                 current_batch_size = labels.shape[0]
+
+
+                inputs = [input.to(device) for input in inputs]
+                positions = positions.to(device)
+                labels = labels.to(device)
+                padding_indicators = padding_indicators.to(device)
+                sequentials = sequentials.to(device)
+
                 current_episodes = reset_hidden_states_if_needed(model, current_episodes, episodes, current_batch_size)
 
                 if is_training:
@@ -461,13 +467,13 @@ def train():
 
     labels = torch.load(SAMPLE_LABEL_PATH)
     labels = prepare_labels(labels)
-    dataset = CustomImageDataset(labels, device)
+    dataset = CustomImageDataset(labels)
 
     train_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=True, random=True)
-    train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=0, collate_fn=collate_fn)
+    train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=4, collate_fn=collate_fn, pin_memory=True)
 
     valid_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=False, random=False)
-    valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=0, collate_fn=collate_fn)
+    valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=4, collate_fn=collate_fn, pin_memory=True)
 
     criterion = nn.MSELoss()
     fig, ax = plt.subplots()

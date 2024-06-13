@@ -27,6 +27,5 @@ i = 0
 while i < 100000:
     panda.step()
     p.stepSimulation()
-    time.sleep(TIME_STEP)
     i += 1
     panda.bullet_client.stopStateLogging(logId)

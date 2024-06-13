@@ -150,68 +150,6 @@ class Network(nn.Module):
         return self.mlp(output)
 
 
-# class EpisodeBatchSampler(Sampler):
-#     def __init__(self, label_file, batch_size, split=0.85, train=True, random=False):
-#         self.labels = torch.load(label_file)
-#         self.batch_size = batch_size
-#         self.train = train
-#         self.random = random
-
-#         # Splitting the episodes into training and validation sets
-#         episodes = list(self.labels.keys())
-#         split_idx = int(len(episodes) * split)
-        
-#         if train:
-#             self.episodes = episodes[:split_idx]
-#         else:
-#             self.episodes = episodes[split_idx:]
-
-#         # Map (episode, sample) pairs to dataset indices
-#         self.dataset_indices = self._create_dataset_indices()
-        
-#         self.shuffle_episodes()
-        
-
-#     def shuffle_episodes(self):
-#         np.random.shuffle(self.episodes)
-#         self.padded_batches = []
-#         self.prepare_batches()
-
-#     def _create_dataset_indices(self):
-#         episode_sample_pairs = [
-#             (episode, sample) for episode, samples in self.labels.items() \
-#                 for sample in samples.keys()
-#         ]
-#         return {pair: idx for idx, pair in enumerate(episode_sample_pairs)}
-
-#     def prepare_batches(self):
-#         num_batches = math.ceil(len(self.episodes) / self.batch_size)
-
-#         for batch_idx in range(num_batches):
-#             batch_episodes = self.episodes[batch_idx * self.batch_size:(batch_idx + 1) * self.batch_size]
-#             max_samples = max(len(self.labels[episode]) for episode in batch_episodes)
-
-#             batch = []
-#             for sample_idx in range(max_samples):
-#                 sample_batch = []
-#                 for episode in batch_episodes:
-#                     samples = list(self.labels[episode].keys())
-#                     if sample_idx < len(samples):
-#                         sample = samples[sample_idx]
-#                         idx = self.dataset_indices[(episode, sample)]
-#                         sample_batch.append(idx)
-#                 batch.append(sample_batch)
-#             self.padded_batches.extend(batch)
-
-#     def __iter__(self):
-#         for batch in self.padded_batches:
-#             yield batch
-
-#     def __len__(self):
-#         return len(self.padded_batches)
-
-
-
 class EpisodeBatchSampler(Sampler):
     def __init__(self, labels, batch_size, split=0.85, train=True, random=False):
         self.labels = labels
@@ -258,7 +196,7 @@ class EpisodeBatchSampler(Sampler):
                         if sample_idx < len(samples):
                             sample = samples[sample_idx]
                             idx = self.dataset_indices[(episode, sample)]
-                        sample_batch.append(idx)
+                            sample_batch.append(idx)
                     batch.append(sample_batch)
 
             else:
@@ -317,14 +255,14 @@ def train():
 
     labels = prepare_labels(labels)
 
-    dataset = CustomImageDataset(labels, device)
+    dataset = CustomImageDataset(labels)
 
     # Create DataLoaders for training and validation sets
     train_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=True, random=True)
-    train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=0)
+    train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True)
 
     valid_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=False, random=False)
-    valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=0)
+    valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=2, pin_memory=True)
 
     # Define loss function and optimizer
     criterion = nn.MSELoss()
@@ -343,6 +281,10 @@ def train():
             for i, data in tqdm(enumerate(train_dataloader, 0), leave=False):
                 inputs, positions, labels = data
 
+                inputs = [input.to(device) for input in inputs]
+                positions = positions.to(device)
+                labels = labels.to(device)
+            
                 current_batch_size = labels.shape[0]
 
                 # Zero the parameter gradients
@@ -380,6 +322,11 @@ def train():
                 val_losses = []
                 for i, val_data in tqdm(enumerate(valid_dataloader, 0), leave=False):
                     val_inputs, val_positions, val_labels = val_data
+
+
+                    val_inputs = [input.to(device) for input in val_inputs]
+                    val_positions = val_positions.to(device)
+                    val_labels = val_labels.to(device)
 
                     current_batch_size = val_labels.shape[0]
 
