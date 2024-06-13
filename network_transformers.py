@@ -115,7 +115,12 @@ class Network(nn.Module):
         self.no_cameras = no_cameras
 
         self.conv_layers = nn.ModuleList([ImageLayer(SEQUENCE_LENGTH * NETWORK_IMAGE_LAYER_SIZE).to(device) for _ in range(no_cameras)])
-        self.cross_view_attention = CrossViewAttention(256, 8, 512).to(device)
+        
+        if no_cameras > 1:
+            self.cross_view_attention = nn.ModuleList()
+            for i in range(no_cameras):
+                for j in range(i + 1, no_cameras):
+                    self.cross_view_attention.append(CrossViewAttention(256, 8, 512).to(device))
 
         hidden_size = 256
         layer_positions = hidden_size + 7
@@ -131,20 +136,24 @@ class Network(nn.Module):
         )
 
     def forward(self, x, positions):
+        # Apply convolutional layers to each camera input
         image_output = [self.conv_layers[idx](input) for idx, input in enumerate(x)]
         image_output = [output.squeeze(1) for output in image_output]
 
         if self.no_cameras == 1:
             combined_output = image_output[0]
-        elif self.no_cameras == 2:
-            combined_output = self.cross_view_attention(image_output[0], image_output[1])
-        elif self.no_cameras == 3:
-            attention_output_1 = self.cross_view_attention(image_output[0], image_output[1])
-            attention_output_2 = self.cross_view_attention(image_output[1], image_output[2])
-            attention_output_3 = self.cross_view_attention(image_output[2], image_output[0])
-            combined_output = (attention_output_1 + attention_output_2 + attention_output_3) / 3
+        else:
+            # Compute pairwise cross-view attention
+            attention_outputs = []
+            attention_idx = 0
+            for i in range(self.no_cameras):
+                for j in range(i + 1, self.no_cameras):
+                    attention_outputs.append(self.cross_view_attention[attention_idx](image_output[i], image_output[j]))
+                    attention_idx += 1
 
-        combined_output = combined_output.squeeze(1)
+            # Average all attention outputs
+            combined_output = sum(attention_outputs) / len(attention_outputs)
+
         output = torch.cat((combined_output, positions), dim=1)
         
         return self.mlp(output)
