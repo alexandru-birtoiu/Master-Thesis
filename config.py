@@ -12,7 +12,7 @@ class TaskType(Enum):
     CUBE_TABLE = 1
     INSERT_CUBE = 2
     CUBE_DEPTH = 3
-    # INSERT_CUBE_2 = 4
+    TEDDY_BEAR = 4
     # Add other tasks as needed
 
 class PredictionType(Enum):
@@ -27,20 +27,19 @@ class ImageType(Enum):
     RGBD = 3
 
 # General configurations
-EPOCH: int = 12
-MODEL_TYPE: ModelType = ModelType.EGO_AND_BIRDSEYE
-USE_DEPTH: bool = False
+EPOCH: int = 1
+MODEL_TYPE: ModelType = ModelType.BIRDSEYE
 TASK_TYPE: TaskType = TaskType.CUBE_DEPTH
 PREDICTION_TYPE: PredictionType = PredictionType.TARGET_POSITION
-IMAGE_TYPE: ImageType = ImageType.RGB
+IMAGE_TYPE: ImageType = ImageType.RGBD
 
-SHOW_AUX_POS: int = 0
+SHOW_AUX_POS: int = 1
 DEVICE: str = 'mps'
 
 # Training configurations
 TRAIN_MODEL_MORE: int = 0
 STARTING_EPOCH: int = 0
-EPOCHS_TO_TRAIN: int = 20
+EPOCHS_TO_TRAIN: int = 10
 
 USE_TASK_LOSS = 0
 
@@ -52,6 +51,7 @@ LSTM_LAYERS: int = 1
 SEQUENCE_LENGTH:int = 4
 
 STEPS_SKIPED:int = 2
+SIMULATION_STEPS: int = 4
 
 MAX_SEQUENCE:int = 150
 
@@ -67,11 +67,12 @@ NETWORK_IMAGE_LAYER_SIZE: int = 1 if IMAGE_TYPE == ImageType.D else 4 if IMAGE_T
 
 NO_EPISODES: int = 2000
 GATHER_DATA: bool = True
-GATHER_DATA_MORE: int = True
-STARTING_EPISODES: int = 500
+GATHER_DATA_MORE: int = False
+STARTING_EPISODES: int = 0
 
 # Image configurations
 IMAGE_SIZE: int = 128
+IMAGE_SIZE_TRAIN = 128
 
 # Simulation parameters
 FPS: float = 240.0
@@ -115,7 +116,7 @@ RP: list[float] = STARTING_JOINT_POSITIONS
 # Paths
 def get_model_path() -> str:
     return f'models/{TASK_TYPE.name.lower()}/'    \
-        + f'model_{MODEL_TYPE.name}_{PREDICTION_TYPE.name}_{IMAGE_SIZE}px_{IMAGE_TYPE.name}_{NO_EPISODES}_episodes_{STEPS_SKIPED}step'   \
+        + f'model_{MODEL_TYPE.name}_{PREDICTION_TYPE.name}_{IMAGE_SIZE_TRAIN}px_{IMAGE_TYPE.name}_{NO_EPISODES}_episodes_{STEPS_SKIPED}step'   \
         + ((f'_lstm_{LSTM_LAYERS}layers' if USE_LSTM else '') + f'_{SEQUENCE_LENGTH}seq')   \
         + ('_transformers' if USE_TRANSFORMERS else '') \
         + ('_taskloss' if USE_TASK_LOSS else '')

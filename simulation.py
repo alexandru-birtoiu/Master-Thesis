@@ -10,11 +10,12 @@ from network_transformers_lstm_3 import Network as NetworkTransformersLSTM
 import torch
 from PIL import Image
 from torchvision import transforms
-from utils import get_image_path, check_distance
+from utils import *
 from enum import Enum
 from CubeTask import CubeTask
 from InsertTask import InsertTask
 from CubeDepthTask import CubeDepthTask
+from TeddyBearTask import TeddyBearTask
 
 transform = transforms.Compose([
     transforms.ToTensor(),
@@ -110,6 +111,7 @@ class PandaSim(object):
             TaskType.CUBE_TABLE: CubeTask(self.bullet_client, self.next_episode),
             TaskType.INSERT_CUBE: InsertTask(self.bullet_client, self.next_episode),
             TaskType.CUBE_DEPTH: CubeDepthTask(self.bullet_client, self.next_episode),
+            TaskType.TEDDY_BEAR: TeddyBearTask(self.bullet_client, self.next_episode),
         }
         # Get the value corresponding to the key `option` from the dictionary.
         # If the key is not found, return the default value.
@@ -269,31 +271,45 @@ class PandaSim(object):
         
         return rgbim, depth_image
 
+    def process_and_store_image(self, key):
+        rgbim, depthim = self.get_camera_image(key)
+        
+        if IMAGE_TYPE == ImageType.D:
+            depth_data = torch.tensor(depthim)
+            depth_data_normalized = normalize_depth_data(depth_data)
+            image_to_store = depth_data_normalized.to(self.device, dtype=torch.float)
+        
+        elif IMAGE_TYPE == ImageType.RGB:
+            image_to_store = transform(rgbim).to(self.device, dtype=torch.float)
+            rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
+
+        elif IMAGE_TYPE == ImageType.RGBD:
+            depth_data = torch.tensor(depthim)
+            depth_data_normalized = normalize_depth_data(depth_data).to(self.device, dtype=torch.float)
+            rgb_data = transform(rgbim).to(self.device, dtype=torch.float)
+            image_to_store = torch.cat((rgb_data, depth_data_normalized), dim=0)
+
+            rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
+
+            depth_pil_image = transforms.ToPILImage()(depth_data_normalized.cpu())
+            depth_pil_image.save(IMAGES_PATH + 'network/depth_' + str(key) + '.png')
+
+        # Apply resizing to the image and store it
+        resized_image = resize_tensor(image_to_store, (IMAGE_SIZE_TRAIN, IMAGE_SIZE_TRAIN))
+        self.images[key].append(resized_image)  
+
     def capture_images(self):
         self.update_ego_camera()
 
         if self.use_network:
-            if self.steps % STEPS_SKIPED == 0:
+            if self.steps % SIMULATION_STEPS == 0:
                 if len(self.images[list(self.images.keys())[0]]) < SEQUENCE_LENGTH:
                     for key in self.active_cameras:
-                        rgbim, depthim = self.get_camera_image(key)
-
-                        if USE_DEPTH:
-                            depth_data = torch.tensor(depthim).view(1, IMAGE_SIZE, IMAGE_SIZE)
-                            min_val = depth_data.min()
-                            max_val = depth_data.max()
-                            
-                            depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
-
-                            self.images[key].append(depth_data_normalized.to(self.device, dtype=torch.float))
-                        else:
-                            self.images[key].append(transform(rgbim).to(self.device, dtype=torch.float))
-                            rgbim.save(IMAGES_PATH + 'network/image_' + str(key) + '.png')
-                        # depthim.save(IMAGES_PATH + 'network/depth_' + str(key) + '.png')
+                        self.process_and_store_image(key)
 
             return 1 if len(self.images[list(self.images.keys())[0]]) == SEQUENCE_LENGTH else -1
         else: 
-            if self.steps % STEPS_SKIPED == 0:
+            if self.steps % SIMULATION_STEPS == 0:
                 for key in self.active_cameras:
                     rgbim, depthim = self.get_camera_image(key)
                     image_path = get_image_path(key, self.episode, self.sample_episode)

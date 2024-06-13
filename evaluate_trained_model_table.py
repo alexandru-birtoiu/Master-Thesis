@@ -135,7 +135,6 @@ checkpoint_values = list(best_epoch_results['checkpoints_count'].values())
 task_name = TASK_TYPE.name
 model_name = task_name + ' _' + MODEL_PATH.split('/')[-1] + '_' + str(best_epoch)
 
-
 plt.bar(checkpoint_labels, checkpoint_values, edgecolor='black')
 plt.xlabel('Checkpoints')
 plt.ylabel('Number of Episodes')

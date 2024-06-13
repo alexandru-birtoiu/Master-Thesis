@@ -24,6 +24,8 @@ logId = panda.bullet_client.startStateLogging(panda.bullet_client.STATE_LOGGING_
 images = []
 i = 0
 
+print(MODEL_PATH)
+
 while i < 100000:
     panda.step()
     p.stepSimulation()
