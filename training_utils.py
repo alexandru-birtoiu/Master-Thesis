@@ -81,7 +81,10 @@ class CustomImageDataset(Dataset):
                             depth_data_normalized = normalize_depth_data(depth_data)
                             self.image_cache.put(depth_path, depth_data_normalized)
 
-                        # Concatenate RGB and depth images
+                        # Normalize the image
+                        img = normalize_image(img)
+        
+                        # Add the depth data as the 4th channel
                         rgbd_data = torch.cat((img, depth_data_normalized), dim=0)
                         sample_images.append(rgbd_data)
 

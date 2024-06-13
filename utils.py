@@ -16,9 +16,17 @@ def check_distance(point1, point2, threshold):
 
 def normalize_depth_data(depth_data):
     depth_data = depth_data.view(1, IMAGE_SIZE, IMAGE_SIZE)
+    depth_data = depth_data - depth_data.mean()  # Subtract mean
     min_val = depth_data.min()
     max_val = depth_data.max()
-    return ((depth_data - min_val) / (max_val - min_val)) * 255
+    return ((depth_data - min_val) / (max_val - min_val))
+
+def normalize_image(img):
+    img = img[:3, :, :]  # Remove the alpha channel
+    img = img - img.mean()  # Subtract mean
+    min_val = img.min()
+    max_val = img.max()
+    return (img - min_val) / (max_val - min_val)
 
 def resize_tensor(image_tensor, target_size):
     return F.interpolate(image_tensor.unsqueeze(0), size=target_size, mode='bilinear', align_corners=False).squeeze(0)
