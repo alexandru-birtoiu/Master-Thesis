@@ -16,7 +16,7 @@ def check_distance(point1, point2, threshold):
 
 def normalize_depth_data(depth_data):
     depth_data = depth_data.view(1, IMAGE_SIZE, IMAGE_SIZE)
-    depth_data = depth_data - depth_data.mean()  # Subtract mean
+    # depth_data = depth_data - depth_data.mean()  # Subtract mean
     min_val = depth_data.min()
     max_val = depth_data.max()
     return ((depth_data - min_val) / (max_val - min_val))

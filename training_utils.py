@@ -83,13 +83,17 @@ class CustomImageDataset(Dataset):
 
                         # Normalize the image
                         img = normalize_image(img)
+
         
                         # Add the depth data as the 4th channel
                         rgbd_data = torch.cat((img, depth_data_normalized), dim=0)
                         sample_images.append(rgbd_data)
 
-            resized_images = [resize_tensor(image, (IMAGE_SIZE_TRAIN, IMAGE_SIZE_TRAIN)) for image in sample_images]
-            inputs.append(torch.cat(resized_images, dim=0))
+            if IMAGE_SIZE_TRAIN != IMAGE_SIZE:
+                resized_images = [resize_tensor(image, (IMAGE_SIZE_TRAIN, IMAGE_SIZE_TRAIN)) for image in sample_images]
+                inputs.append(torch.cat(resized_images, dim=0))
+            else:
+                inputs.append(torch.cat(sample_images, dim=0))
         
         label = torch.tensor(self.labels[episode][sample]["labels"])
         positions = torch.tensor(self.labels[episode][sample]["positions"])
