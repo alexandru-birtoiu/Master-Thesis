@@ -54,10 +54,10 @@ best_epoch = 0
 
 print(MODEL_PATH)
 
-for epoch in range(15, EPOCH + 1):
+for epoch in range(10, EPOCH + 1):
     # Load model for the current epoch (assumed to be implemented)
     panda.load_model(epoch)
-    print(f'Loading new model ..{epoch}')
+    print(f'Loading new model {epoch}..')
     
     checkpoints = {
         "near_object": False,

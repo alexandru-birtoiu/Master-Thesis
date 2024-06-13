@@ -57,7 +57,7 @@ print(MODEL_PATH)
 for epoch in range(2, EPOCH + 1):
     # Load model for the current epoch (assumed to be implemented)
     panda.load_model(epoch)
-    print('Loading new model ..')
+    print(f'Loading new model {epoch}..')
     
     checkpoints = {
         "near_object": False,
