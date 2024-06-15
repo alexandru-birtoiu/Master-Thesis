@@ -19,7 +19,6 @@ from TeddyBearTask import TeddyBearTask
 
 transform = transforms.Compose([
     transforms.ToTensor()
-    # lambda x: x*255
 ])   
 
 class PandaSim(object):
@@ -90,7 +89,7 @@ class PandaSim(object):
                 self.model  = NetworkTransformers(len(ACTIVE_CAMERAS), self.device).to(self.device)
             else:
                 self.model = NetworkBase(len(ACTIVE_CAMERAS), self.device).to(self.device)
-            self.load_model(EPOCH)
+            # self.load_model(EPOCH)
             self.active_cameras = ACTIVE_CAMERAS
             self.create_folder('network')
             self.target = None
@@ -278,6 +277,8 @@ class PandaSim(object):
             depth_data = torch.tensor(depthim)
             depth_data_normalized = normalize_depth_data(depth_data)
             image_to_store = depth_data_normalized.to(self.device, dtype=torch.float)
+            depth_pil_image = transforms.ToPILImage()(depth_data_normalized.cpu())
+            depth_pil_image.save(IMAGES_PATH + 'network/depth_' + str(key) + '.png')
         
         elif IMAGE_TYPE == ImageType.RGB:
             rgb_data = transform(rgbim).to(self.device, dtype=torch.float)

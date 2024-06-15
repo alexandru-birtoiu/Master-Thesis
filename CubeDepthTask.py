@@ -40,7 +40,7 @@ class CubeDepthTask(Task):
 
         if self.state == TaskStages.GO_ABOVE_CUBE:
             pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
-            diff = 0.1
+            diff = 0.02
             self.target_pos = np.array([pos[0], pos[1] + diff, pos[2]])
         elif self.state == TaskStages.GO_ON_CUBE:
             pos, _ = self.bullet_client.getBasePositionAndOrientation(self.cube)
@@ -95,7 +95,7 @@ class CubeDepthTask(Task):
     def randomize_environment(self):
         self.randomize_task()
 
-        cubePosition = np.array([self.start_position[0] + self.randx, 
+        cubePosition = np.array([self.start_position[0] + self.randx +0.03, 
                         self.start_position[1] + self.randy, 
                         self.start_position[2] + self.randz])
     
@@ -132,7 +132,7 @@ class CubeDepthTask(Task):
 
 
         tableOrientation = self.bullet_client.getQuaternionFromEuler([-math.pi / 2, math.pi / 2, 0])
-        self.table = self.bullet_client.loadURDF("table/table.urdf", np.array([-0.5, 0.0, -0.2]), tableOrientation,
+        self.table = self.bullet_client.loadURDF("table/table.urdf", np.array([-0.7, 0.0, -0.1]), tableOrientation,
                                                  globalScaling=0.25)
         
 

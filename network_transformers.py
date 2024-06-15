@@ -123,7 +123,7 @@ class Network(nn.Module):
                     self.cross_view_attention.append(CrossViewAttention(256, 8, 512).to(device))
 
         hidden_size = 256
-        layer_positions = hidden_size #+ 7
+        layer_positions = hidden_size + 7
 
         self.mlp = nn.Sequential(
             nn.Linear(layer_positions, 256),
@@ -153,10 +153,8 @@ class Network(nn.Module):
 
             # Average all attention outputs
             combined_output = sum(attention_outputs) / len(attention_outputs)
-
-        # output = torch.cat((combined_output, positions), dim=1)
-        output = combined_output
-        
+        output = torch.cat((combined_output, positions), dim=1)
+        # output = combined_output
         return self.mlp(output)
 
 
@@ -269,10 +267,10 @@ def train():
 
     # Create DataLoaders for training and validation sets
     train_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=True, random=True)
-    train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=3, pin_memory=True)
+    train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=2, pin_memory=True)
 
     valid_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=False, random=False)
-    valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=3, pin_memory=True)
+    valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=2, pin_memory=True)
 
     # Define loss function and optimizer
     criterion = nn.MSELoss()
