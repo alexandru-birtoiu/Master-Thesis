@@ -8,9 +8,9 @@ master thesis repository! This repository is dedicated to studying the optimal c
 - [Setup Environment](#setup-environment)
 - [Configuration Settings](#configuration-settings)
 - [Dataset Creation](#dataset-creation)
-- [Training the Model](#training-the-model)
-- [Testing the Model](#testing-the-model)
-- [Evaluating the Model](#evaluating-the-model)
+- [Training a Model](#training-the-model)
+- [Testing a Model](#testing-the-model)
+- [Evaluating a Model](#evaluating-the-model)
 
 
 ## Setup Environment
