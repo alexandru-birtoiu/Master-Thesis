@@ -77,7 +77,7 @@ You can train any of the three types of network architectures provided:
 - `network_transformers.py`
 - `network_transformers_lstm.py`
 
-Ensure that the relevant settings such as epochs to train, image type, current camera setups, learning rate, and whether to resume training are correctly configured in the `config.py` file. Moreover for the base network both `USE_TRANSFORMERS` and `USE_LSTM` should be turned off, while for the transformers one, only the `USE_TRANSFORMERS` should enable. Then, you can run the training script:
+Ensure that the relevant settings such as epochs to train, image type, current camera setups, learning rate, and whether to resume training are correctly configured in the `config.py` file. Moreover for the base network both `USE_TRANSFORMERS` and `USE_LSTM` should be turned off, while for the transformers one, only the `USE_TRANSFORMERS` should be enabled. Then, you can run the training script:
 
 ```sh
 python {model_file}
