@@ -25,6 +25,8 @@ images = []
 i = 0
 
 print(MODEL_PATH)
+panda.load_model(EPOCH)
+
 
 while i < 100000:
     panda.step()

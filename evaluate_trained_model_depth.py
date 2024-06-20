@@ -8,6 +8,8 @@ import numpy as np
 import torch
 import os
 
+os.makedirs(f'evaluation', exist_ok=True)
+
 def reset_simulation(panda, checkpoints, checkpoints_count):
     for checkpoint, reached in checkpoints.items():
         if reached:
@@ -49,13 +51,14 @@ panda.control_dt = TIME_STEP
 
 # Initialize variables
 all_epoch_results = {}
-max_full_checkpoints = 0
+max_full_checkpoints = -1
 best_epoch = 0
 
 print(MODEL_PATH)
 
-for epoch in range(2, EPOCH + 1):
-    # Load model for the current epoch (assumed to be implemented)
+# Iterate through all the epochs from 1 to EPOCH
+for epoch in range(6, EPOCH + 1):
+    # Load model for the current epoch
     panda.load_model(epoch)
     print(f'Loading new model {epoch}..')
     
@@ -73,9 +76,9 @@ for epoch in range(2, EPOCH + 1):
     }
 
     start_time = time.time()
-    time_limit = 15 
+    time_limit = 10
     episode_count = 0
-    max_episodes = 30
+    max_episodes = 50
     full_checkpoints_count = 0
 
     # Main simulation loop
@@ -154,7 +157,7 @@ plt.title('Number of Full Checkpoints per Epoch')
 plt.savefig(f'evaluation/full_checkpoints_per_epoch_{model_name}.png')
 plt.show(block=True)
 
-# Save all data in one dictionary
+# Save all data
 torch.save(all_epoch_results, f'evaluation/all_epoch_checkpoints_data_{model_name}')
 
 print(f'The best epoch is {best_epoch} with {max_full_checkpoints} full checkpoints.')

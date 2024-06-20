@@ -12,106 +12,19 @@ import math
 from collections import deque
 from torchtest import assert_vars_change
 from config import *
+from training_utils import *
 
-
-class ImageLayer(nn.Module):
-    def __init__(self, input_channels):
-        super(ImageLayer, self).__init__()
-        self.input_channels = input_channels
-        self.conv1 = nn.Conv2d(input_channels, 32, kernel_size=(3, 3), stride=2, padding=1)
-        self.conv2 = nn.Conv2d(32, 48, kernel_size=(3, 3), stride=2, padding=1)
-        self.conv3 = nn.Conv2d(48, 64, kernel_size=(3, 3), stride=2, padding=1)
-        self.conv4 = nn.Conv2d(64, 128, kernel_size=(3, 3), stride=2, padding=1)
-        self.conv5 = nn.Conv2d(128, 192, kernel_size=(3, 3), stride=2, padding=1)
-        self.conv6 = nn.Conv2d(192, 256, kernel_size=(3, 3), stride=2, padding=1)
-        self.conv7 = nn.Conv2d(256, 256, kernel_size=(3, 3), stride=2, padding=1)
-
-
-    def forward(self, x):
-        batch_size, channels, height, width = x.size()
-        
-        number_of_images = channels // self.input_channels
-
-        # Reshape input tensor to (batch_size * number_of_images, channels_per_image, height, width)
-        x = x.view(batch_size * number_of_images, self.input_channels, height, width)
-
-        # Apply convolutional layers
-        x = torch.relu(self.conv1(x))
-        x = torch.relu(self.conv2(x))
-        x = torch.relu(self.conv3(x))
-        x = torch.relu(self.conv4(x))
-        x = torch.relu(self.conv5(x))
-        x = torch.relu(self.conv6(x))
-        x = torch.relu(self.conv7(x))
-
-        # Reshape back to (batch_size, number_of_images, -1)
-        x = x.view(batch_size, number_of_images, -1)
-
-        return x
-    
-class CrossViewAttention(nn.Module):
-    def __init__(self, embed_dim, num_heads, mlp_hidden_dim):
-        super(CrossViewAttention, self).__init__()
-        
-        self.layer_norm = nn.LayerNorm(embed_dim)
-        
-        self.q_linear1 = nn.Linear(embed_dim, embed_dim)
-        self.k_linear2 = nn.Linear(embed_dim, embed_dim)
-        self.v_linear2 = nn.Linear(embed_dim, embed_dim)
-        
-        self.q_linear2 = nn.Linear(embed_dim, embed_dim)
-        self.k_linear1 = nn.Linear(embed_dim, embed_dim)
-        self.v_linear1 = nn.Linear(embed_dim, embed_dim)
-        
-        self.attention = nn.MultiheadAttention(embed_dim, num_heads, dropout=0.1)
-        
-        self.mlp1 = nn.Sequential(
-            nn.Linear(embed_dim, mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_dim, embed_dim)
-        )
-        
-        self.mlp2 = nn.Sequential(
-            nn.Linear(embed_dim, mlp_hidden_dim),
-            nn.ReLU(),
-            nn.Linear(mlp_hidden_dim, embed_dim)
-        )
-
-    def forward(self, z1, z2):
-        ln_z1 = self.layer_norm(z1)
-        ln_z2 = self.layer_norm(z2)
-
-        q1 = self.q_linear1(ln_z1)
-        k2 = self.k_linear2(ln_z2)
-        v2 = self.v_linear2(ln_z2)
-
-        q2 = self.q_linear2(ln_z2)
-        k1 = self.k_linear1(ln_z1)
-        v1 = self.v_linear1(ln_z1)
-
-        attn_output1, _ = self.attention(q1, k2, v2)
-        attn_output2, _ = self.attention(q2, k1, v1)
-
-        ln_attn_output1 = self.layer_norm(z1 + attn_output1)
-        ln_attn_output2 = self.layer_norm(z2 + attn_output2)
-
-        h1 = self.mlp1(ln_attn_output1)
-        h2 = self.mlp2(ln_attn_output2)
-
-        combined_output = h1 + h2
-
-        return combined_output
 
 class LayerNormLSTM(nn.Module):
-    def __init__(self, input_size, hidden_size, num_layers, dropout):
+    def __init__(self, input_size, hidden_size, num_layers):
         super(LayerNormLSTM, self).__init__()
-        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True, dropout=dropout)
+        self.lstm = nn.LSTM(input_size, hidden_size, num_layers, batch_first=True)
         self.layer_norm = nn.LayerNorm(hidden_size)
 
     def forward(self, x, states):
-        x, states = self.lstm(x, states)
-        x = self.layer_norm(x)
-        return x, states
+        output, states = self.lstm(x, states)
+        output = self.layer_norm(output)
+        return output, states
 
 class Network(nn.Module):
     def __init__(self, no_cameras, device):
@@ -119,27 +32,45 @@ class Network(nn.Module):
         self.device = device
         self.no_cameras = no_cameras
         
-        self.conv_layers = nn.ModuleList([ImageLayer(1 if USE_DEPTH else 4).to(device) for _ in range(no_cameras)])
-        
-        lstm_input_size = 256
-        self.hidden_size = 256
-        self.cross_attention_hidden = 512
+        self.conv_layers = nn.ModuleList([ImageLayer(SEQUENCE_LENGTH * NETWORK_IMAGE_LAYER_SIZE).to(device) for _ in range(no_cameras)])
+        self.cross_view_attention = CrossViewAttention(256, 8, 512).to(device)
 
-        last_layer_size = self.hidden_size + 7
-        
-        self.lstm_camera1 = LayerNormLSTM(lstm_input_size, self.hidden_size, LSTM_LAYERS, dropout=0.5)
-        self.lstm_camera2 = LayerNormLSTM(lstm_input_size, self.hidden_size, LSTM_LAYERS, dropout=0.5)
-        
-        self.cross_view_attention = CrossViewAttention(self.hidden_size, 4, self.cross_attention_hidden).to(device)
-        # self.dropout = nn.Dropout(p=0.5) 
-        
-        # TASK LOSS
-        # self.last = nn.Linear(last_layer_size, 14 if PREDICTION_TYPE == PredictionType.POSITION else 18) 
-        
-        # NO TASK LOSS
-        self.last = nn.Linear(last_layer_size, 11 if PREDICTION_TYPE == PredictionType.POSITION else 15) 
+        conv_out_size = 256
 
-    def forward(self, x, positions):
+        layer_positions = conv_out_size + 7
+        
+
+        self.mlp = nn.Sequential(
+            nn.Linear(layer_positions, 256),
+            nn.ReLU(),
+            nn.Linear(256, 128),
+            nn.ReLU(),
+            nn.Linear(128, 64),
+            nn.ReLU(),
+        )
+
+        self.lstm_input_size = 64
+        self.lstm_hidden = 64
+
+        self.lstm = LayerNormLSTM(self.lstm_input_size, self.lstm_hidden, LSTM_LAYERS)
+
+        self.last = nn.Linear(self.lstm_hidden, NETWORK_OUTPUT_SIZE)
+
+        # Register hidden states as buffers
+        self._initialize_hidden_state_buffers()
+
+        # Initialize hidden states
+        self.reset_hidden_states(BATCH_SIZE)
+
+    def _initialize_hidden_state_buffers(self):
+        self.register_buffer('h_last', torch.randn(LSTM_LAYERS, BATCH_SIZE, self.lstm_hidden, requires_grad=False), persistent=False)
+        self.register_buffer('c_last', torch.randn(LSTM_LAYERS, BATCH_SIZE, self.lstm_hidden, requires_grad=False), persistent=False)
+
+    def reset_hidden_states(self, batch_size):
+        self.h_last = torch.randn(LSTM_LAYERS, batch_size, self.lstm_hidden, requires_grad=False).to(self.device)
+        self.c_last = torch.randn(LSTM_LAYERS, batch_size, self.lstm_hidden, requires_grad=False).to(self.device)
+
+    def forward(self, x, positions, sequentials):
         image_output = []
 
         for idx, input in enumerate(x):
@@ -147,24 +78,43 @@ class Network(nn.Module):
             image_output.append(input)
 
         camera_1 = image_output[0]
-        camera_2 = image_output[1]
 
-        h_0 = torch.randn(LSTM_LAYERS, camera_1.shape[0], self.hidden_size, requires_grad=True).to(self.device) 
-        c_0 = torch.randn(LSTM_LAYERS, camera_1.shape[0], self.hidden_size, requires_grad=True).to(self.device) 
+        if len(image_output) > 1:
+            camera_2 = image_output[1]
+            cross_attention_out = self.cross_view_attention(camera_1, camera_2)
+        else:
+            cross_attention_out = camera_1
         
-        lstm_out_1, _ = self.lstm_camera1(camera_1, (h_0, c_0))
-        lstm_out_1 = lstm_out_1[:, -1, :]
+        mlp_in = torch.concat((cross_attention_out, positions.unsqueeze(1)), dim=2)
+        mlp_out = self.mlp(mlp_in)
 
-        lstm_out_2, _ = self.lstm_camera2(camera_2, (h_0, c_0))
-        lstm_out_2 = lstm_out_2[:, -1, :]
+        # Create mask for sequences with length 1
+        mask = sequentials
 
-        # lstm_out_1 = self.dropout(lstm_out_1)
-        # lstm_out_2 = self.dropout(lstm_out_2)
+        # Retrieve or initialize hidden states based on the mask
+        h_last = self.h_last
+        c_last = self.c_last
 
-        cross_attention_out = self.cross_view_attention(lstm_out_1, lstm_out_2)
-        
-        output = torch.concat((cross_attention_out, positions), dim=1)
-        return self.last(output)
+        if mask.any():
+            lstm_input = mlp_out[mask]
+            lstm_out, (h_last[:, mask], c_last[:, mask]) = self.lstm(lstm_input, (h_last[:, mask], c_last[:, mask]))
+            lstm_out = lstm_out[:, -1, :]
+        else:
+            lstm_out = torch.tensor([], device=mlp_out.device)
+
+        if (~mask).any():
+            non_lstm_out = mlp_out[~mask].squeeze(1)
+        else:
+            non_lstm_out = torch.tensor([], device=mlp_out.device)
+
+        # Save the detached hidden states
+        self.h_last = h_last.detach()
+        self.c_last = c_last.detach()
+
+        # Concatenate outputs
+        final_output = torch.cat([lstm_out, non_lstm_out], dim=0)
+
+        return self.last(final_output)
 
 class EpisodeBatchSampler(Sampler):
     def __init__(self, labels, batch_size, split=0.85, train=True, random=False):
@@ -192,7 +142,7 @@ class EpisodeBatchSampler(Sampler):
     def _create_dataset_indices(self):
         episode_sample_pairs = [
             (episode, sample) for episode, samples in self.labels.items() \
-                for sample in list(samples.keys())[SEQUENCE_LENGTH - 1:]
+                for sample in list(samples.keys())
         ]
         return {pair: idx for idx, pair in enumerate(episode_sample_pairs)}
 
@@ -212,22 +162,50 @@ class EpisodeBatchSampler(Sampler):
                         if sample_idx < len(samples):
                             sample = samples[sample_idx]
                             idx = self.dataset_indices[(episode, sample)]
-                        sample_batch.append(idx)
+                        sample_batch.append((idx, 1))
                     batch.append(sample_batch)
-
             else:
-                episode_sample_sequences = {episode: np.random.permutation(list(self.labels[episode].keys())[SEQUENCE_LENGTH - 1:]) for episode in batch_episodes}
-                max_samples = max(len(episode_sample_sequences[episode]) for episode in batch_episodes)
+                half_batch_size = len(batch_episodes) // 2
+                sequential_episodes = batch_episodes[:half_batch_size]
+                random_episodes = batch_episodes[half_batch_size:]
+
+                seq_episodes_sample_sequences = {
+                    episode: list(self.labels[episode].keys())[SEQUENCE_LENGTH - 1:]
+                    for episode in sequential_episodes
+                }
+                random_episodes_sample_sequences = {
+                    episode: np.random.permutation(list(self.labels[episode].keys())[SEQUENCE_LENGTH - 1:])
+                    for episode in random_episodes
+                }
+
+                max_samples_seq = max(len(seq) for seq in seq_episodes_sample_sequences.values())
+                max_samples_rand = max(len(rand) for rand in random_episodes_sample_sequences.values())
+
+                max_samples = max(max_samples_seq, max_samples_rand)
 
                 for sample_idx in range(max_samples):
                     sample_batch = []
-                    for episode in batch_episodes:
-                        samples = episode_sample_sequences[episode]
+
+                    for episode in sequential_episodes:
+                        samples = seq_episodes_sample_sequences[episode]
                         if sample_idx < len(samples):
                             sample = samples[sample_idx]
                             idx = self.dataset_indices[(episode, sample)]
-                            sample_batch.append(idx)
-                    batch.append(sample_batch)
+                            sample_batch.append((idx, 1))  # 1 for sequential
+                        else:
+                            sample_batch.append((None, 0))  # Padding for missing samples
+
+                    for episode in random_episodes:
+                        samples = random_episodes_sample_sequences[episode]
+                        if sample_idx < len(samples):
+                            sample = samples[sample_idx]
+                            idx = self.dataset_indices[(episode, sample)]
+                            sample_batch.append((idx, 0))  # 0 for random
+                        else:
+                            sample_batch.append((None, 0))  # Padding for missing samples
+
+                    if not all(item[0] is None for item in sample_batch):
+                        batch.append(sample_batch)
                 
             self.batches.extend(batch)
 
@@ -238,273 +216,228 @@ class EpisodeBatchSampler(Sampler):
     def __len__(self):
         return len(self.batches)
 
-# class EpisodeBatchSampler(Sampler):
-#     def __init__(self, labels, batch_size, split=0.85, train=True, random=False):
-#         self.labels = labels
-#         self.batch_size = batch_size
-#         self.train = train
-#         self.random = random
-#         self.dataset_indices = self._create_dataset_indices()
-
-#         episodes = list(self.labels.keys())
-#         split_idx = int(len(episodes) * split)
-        
-#         if self.train:
-#             self.episodes = episodes[:split_idx]
-#         else:
-#             self.episodes = episodes[split_idx:]
-
-#         self.shuffle_episodes()
-
-#     def shuffle_episodes(self):
-#         np.random.shuffle(self.episodes)
-
-#     def _create_dataset_indices(self):
-#         episode_sample_pairs = [
-#             (episode, sample) for episode, samples in self.labels.items() \
-#                 for sample in list(samples.keys())[SEQUENCE_LENGTH - 1:]
-#         ]
-#         return {pair: idx for idx, pair in enumerate(episode_sample_pairs)}
-
-#     def __iter__(self):
-#         batch = []
-#         for episode in self.episodes:
-#             samples = list(self.labels[episode].keys())[SEQUENCE_LENGTH - 1:]
-#             if self.random:
-#                 np.random.shuffle(samples)
-#             for sample in samples:
-#                 idx = self.dataset_indices[(episode, sample)]
-#                 batch.append(idx)
-#                 if len(batch) == self.batch_size:
-#                     yield batch
-#                     batch = []
-#             if len(batch) > 0:
-#                 yield batch
-#                 batch = []
-
-#     def __len__(self):
-#         total_samples = sum(math.ceil(len(list(self.labels[episode].keys())[SEQUENCE_LENGTH - 1:]) / self.batch_size) \
-#                              for episode in self.episodes)
-#         return total_samples
-
-class ImageCache:
-    def __init__(self, max_size):
-        self.cache = {}
-        self.order = deque()
-        self.max_size = max_size
-
-    def get(self, path):
-        return self.cache.get(path)
-
-    def put(self, path, tensor):
-        if path not in self.cache:
-            if len(self.order) >= self.max_size:
-                oldest = self.order.pop()
-                del self.cache[oldest]
-            self.order.appendleft(path)
-        self.cache[path] = tensor
-            
-
-class CustomImageDataset(Dataset):
-    def __init__(self, label_file, device):
-        self.labels = torch.load(label_file)
-        self.device = device
+class CustomImageDatasetLSTM(Dataset):
+    def __init__(self, labels):
+        self.labels = labels
         self.cameras = ACTIVE_CAMERAS
 
         self.episode_sample_pairs = [
             (episode, sample) for episode, samples in self.labels.items() \
-                for sample in list(samples.keys())[SEQUENCE_LENGTH - 1:]
+                for sample in samples.keys()
         ]
 
-        self.image_cache = ImageCache(max_size=SEQUENCE_LENGTH * BATCH_SIZE * MAX_SEQUENCE)
+        self.image_cache = ImageCache(max_size=len(self.cameras) * MAX_SEQUENCE * BATCH_SIZE * (2 if IMAGE_TYPE == ImageType.RGBD else 1))
 
     def __len__(self):
         return len(self.episode_sample_pairs)
 
-    def __getitem__(self, idx):
+    def __getitem__(self, item):
+        idx, sequential = item 
+
+        if idx is None:
+            # Return a placeholder tensor and padding indicator for None index
+            inputs = [torch.zeros((NETWORK_IMAGE_LAYER_SIZE * SEQUENCE_LENGTH, IMAGE_SIZE_TRAIN, IMAGE_SIZE_TRAIN)) for _ in self.cameras]
+            positions = torch.zeros(7)
+            label = torch.zeros(24 if USE_TASK_LOSS else 21)  # Adjusted size if we are using task_loss
+            padding_indicator = 1  # Padded sample
+            return inputs, positions, label, padding_indicator, sequential, None
+
         episode, sample = self.episode_sample_pairs[idx]
         inputs = []
 
         for camera in self.cameras:
             sample_images = []
             for i in range(SEQUENCE_LENGTH - 1, -1, -1):
-                if USE_DEPTH:
+                if IMAGE_TYPE == ImageType.D:
                     depth_path = get_depth_path(camera, episode, sample - i)
                     depth_data_normalized = self.image_cache.get(depth_path)
 
                     if depth_data_normalized is None:
                         depth_data = torch.tensor(torch.load(depth_path))
-                        depth_data = depth_data.view(1, IMAGE_SIZE, IMAGE_SIZE)
-
-                        min_val = depth_data.min()
-                        max_val = depth_data.max()
-                        depth_data_normalized = (depth_data - min_val) / (max_val - min_val)
-
-                        self.image_cache.put(depth_path, depth_data_normalized.to(self.device))
+                        depth_data_normalized = normalize_depth_data(depth_data)
+                        self.image_cache.put(depth_path, depth_data_normalized)
 
                     sample_images.append(depth_data_normalized)
-                else:
+
+                elif IMAGE_TYPE == ImageType.RGB:
                     image_path = get_image_path(camera, episode, sample - i)
                     img = self.image_cache.get(image_path)
 
                     if img is None:
-                        img = read_image(image_path).to(self.device, dtype=torch.float)
+                        img = read_image(image_path).to(dtype=torch.float)
+                        img = normalize_image(img)  # Normalize the RGB image
                         self.image_cache.put(image_path, img)
 
                     sample_images.append(img)
-            inputs.append(torch.concat(sample_images, dim=0))
+
+                elif IMAGE_TYPE == ImageType.RGBD:
+                    image_path = get_image_path(camera, episode, sample - i)
+                    depth_path = get_depth_path(camera, episode, sample - i)
+
+                    img = self.image_cache.get(image_path)
+                    depth_data_normalized = self.image_cache.get(depth_path)
+
+                    if img is None:
+                        img = read_image(image_path).to(dtype=torch.float)
+                        img = normalize_image(img)  # Normalize the RGB image
+                        self.image_cache.put(image_path, img)
+
+                    if depth_data_normalized is None:
+                        depth_data = torch.tensor(torch.load(depth_path))
+                        depth_data_normalized = normalize_depth_data(depth_data)
+                        self.image_cache.put(depth_path, depth_data_normalized)
+
+                    # Add the depth data as the 4th channel
+                    rgbd_data = torch.cat((img, depth_data_normalized), dim=0)
+                    sample_images.append(rgbd_data)
+
+            if IMAGE_SIZE_TRAIN != IMAGE_SIZE:
+                resized_images = [resize_tensor(image, (IMAGE_SIZE_TRAIN, IMAGE_SIZE_TRAIN)) for image in sample_images]
+                inputs.append(torch.cat(resized_images, dim=0))
+            else:
+                inputs.append(torch.cat(sample_images, dim=0))
         
-        label = torch.tensor(self.labels[episode][sample]["labels"]).to(self.device)
-        positions = torch.tensor(self.labels[episode][sample]["positions"]).to(self.device)
+        label = torch.tensor(self.labels[episode][sample]["labels"])
+        positions = torch.tensor(self.labels[episode][sample]["positions"])
 
-        task = self.labels[episode][sample]["task"]
-        task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3).to(self.device)  # Adjust task to zero-based
-        label = torch.cat((label[:-8], task_one_hot.float(), label[-8:]), dim=0)
+        if USE_TASK_LOSS:
+            task = self.labels[episode][sample]["task"][0]
+            task_one_hot = torch.nn.functional.one_hot(torch.tensor(task - 1), num_classes=3)  
+            label = torch.cat((label[:-8], task_one_hot.float(), label[-8:]), dim=0)
 
-        return inputs, positions, label
+        padding_indicator = 0
+        return inputs, positions, label, padding_indicator, sequential, episode
 
-def calculate_loss(criterion, outputs, labels):
+def collate_fn(batch):
+    inputs, positions, labels, padding_indicators, sequentials, episodes = zip(*batch)
+
+    inputs = [torch.stack([inputs[b][i] for b in range(len(inputs))], dim=0) for i in range(len(inputs[0]))]
+
+    positions = torch.stack(positions, dim=0)
+    labels = torch.stack(labels, dim=0)
+    padding_indicators = torch.tensor(padding_indicators, dtype=torch.float32)
+
+    sequentials = torch.tensor(sequentials) == 1
+
+    return inputs, positions, labels, padding_indicators, episodes, sequentials
+
+def reset_hidden_states_if_needed(model, current_episodes, new_episodes, batch_size):
+    filtered_new_episodes = [ep for ep in new_episodes if ep is not None]
+
+    set_current_episodes = set(current_episodes) if current_episodes is not None else set()
+    set_new_episodes = set(filtered_new_episodes)
     
-    if PREDICTION_TYPE == PredictionType.POSITION:
-        loss_1 = criterion(outputs[:, :3], labels[:, 7:10])
-    else:
-        loss_1 = criterion(outputs[:, :7], labels[:, :7])
+    if not set_new_episodes.issubset(set_current_episodes):
+        model.reset_hidden_states(batch_size)
+        return filtered_new_episodes  # Update to filtered new episodes
 
-    # task_loss = criterion(outputs[:, -11:-8], labels[:, -11:-8])
-    loss_2 = criterion(outputs[:, -8:-6], labels[:, -8:-6])
-    loss_3 = criterion(outputs[:, -6:-3], labels[:, -6:-3])
-    loss_4 = criterion(outputs[:, -3:], labels[:, -3:])
-
-    return loss_1 + loss_2 + loss_3 + loss_4 #+ task_loss
+    return current_episodes
 
 def train():
+    def run_epoch(model, dataloader, criterion, pbar, epoch, is_training=True, optimizer=None):
+        model.train() if is_training else model.eval()
+        epoch_losses = []
+        current_episodes = None
+        sample = 0
+        
+        with torch.set_grad_enabled(is_training):
+            for i, data in tqdm(enumerate(dataloader, 0), leave=False):
+                inputs, positions, labels, padding_indicators, episodes, sequentials = data
+                current_batch_size = labels.shape[0]
+
+
+                inputs = [input.to(device) for input in inputs]
+                positions = positions.to(device)
+                labels = labels.to(device)
+                padding_indicators = padding_indicators.to(device)
+                sequentials = sequentials.to(device)
+
+                current_episodes = reset_hidden_states_if_needed(model, current_episodes, episodes, current_batch_size)
+
+                if is_training:
+                    optimizer.zero_grad()
+                
+                outputs = model(inputs, positions, sequentials)
+                loss = calculate_loss(criterion, outputs, labels, padding_indicators == 0)
+                epoch_losses.append(loss.item())
+                
+                if is_training:
+                    loss.backward()
+                    optimizer.step()
+
+                sample += current_batch_size
+                pbar.set_description('[%d, %5d] %s loss: %.8f batches: %d' %
+                                     (epoch, sample, 'train' if is_training else 'validation', np.mean(epoch_losses[-1]), current_batch_size))
+                pbar.update(1)
+
+        return np.mean(epoch_losses)
+
     device = torch.device(DEVICE)
-
     model = Network(len(ACTIVE_CAMERAS), device).to(device)
-
     starting_epoch = 0
-
     epoch_losses = []
-    batch_losses = []
     validation_losses = []
 
     optimizer = optim.Adam(model.parameters(), lr=LEARNING_RATE)
     scheduler = optim.lr_scheduler.StepLR(optimizer, step_size=SCHEDULER_STEP_SIZE, gamma=0.5)
-
     print(MODEL_PATH)
 
     if TRAIN_MODEL_MORE:
-        model_dict = torch.load(MODEL_PATH + '_' + str(STARTING_EPOCH) + '.pth', map_location=DEVICE)
-        model.load_state_dict(model_dict)
+        model.load_state_dict(torch.load(f'{MODEL_PATH}_{STARTING_EPOCH}.pth', map_location=DEVICE))
         model.train()
-
         details = torch.load(DETAILS_PATH)
-        
         starting_epoch = STARTING_EPOCH
         epoch_losses = details["epoch_losses"][:STARTING_EPOCH]
         validation_losses = details["validation_losses"][:STARTING_EPOCH]
-
         [scheduler.step() for _ in range(starting_epoch)]
 
-    dataset = CustomImageDataset(SAMPLE_LABEL_PATH, device)
-
+    labels = torch.load(SAMPLE_LABEL_PATH)
+    labels = prepare_labels(labels)
+    dataset = CustomImageDatasetLSTM(labels)
 
     train_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=True, random=True)
-    train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=0)
+    train_dataloader = DataLoader(dataset, batch_sampler=train_sampler, num_workers=2, collate_fn=collate_fn, pin_memory=True)
 
     valid_sampler = EpisodeBatchSampler(dataset.labels, batch_size=BATCH_SIZE, train=False, random=False)
-    valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=0)
+    valid_dataloader = DataLoader(dataset, batch_sampler=valid_sampler, num_workers=2, collate_fn=collate_fn, pin_memory=True)
 
-    # Define loss function and optimizer
     criterion = nn.MSELoss()
-    
     fig, ax = plt.subplots()
     ax.set(xlabel='Epoch', ylabel='Loss', title='Loss Curve for epochs')
     plt.yscale('log')
+
     with tqdm(total=EPOCHS_TO_TRAIN * (len(train_dataloader) + len(valid_dataloader))) as pbar:
         for epoch in tqdm(range(EPOCHS_TO_TRAIN), leave=False):
-            pbar.write(f'Current Learning Rate: {scheduler.get_last_lr()})')
+            pbar.write(f'Current Learning Rate: {scheduler.get_last_lr()}')
             display_epoch = starting_epoch + epoch + 1
-            model.train()  # switch back to training mode
-            sample = 0
 
-            for i, data in tqdm(enumerate(train_dataloader, 0), leave=False):
-                inputs, positions, labels = data
-
-                current_batch_size = labels.shape[0]
-
-                # Zero the parameter gradients
-                optimizer.zero_grad()
-                # Forward pass
-                outputs = model(inputs, positions)
-                
-                # Calculate loss
-                loss = calculate_loss(criterion, outputs, labels)
-                
-                # Backward pass and optimize
-                loss.backward()
-
-                # torch.nn.utils.clip_grad_norm_(model.parameters(), CLIP_GRADIENTS_VALUE)
-
-                optimizer.step()
-
-                batch_losses.append(loss.item())
-
-                sample += current_batch_size
-
-                pbar.set_description('[%d, %5d] loss: %.8f batches: %d' %
-                                     (display_epoch, sample, np.mean(batch_losses[-1]), current_batch_size))
-                pbar.update(1)
-            pbar.write(f'LOSS epoch {display_epoch}: {np.mean(batch_losses)}')
+            train_loss = run_epoch(model, train_dataloader, criterion, pbar, display_epoch, is_training=True, optimizer=optimizer)
+            epoch_losses.append(train_loss)
+            pbar.write(f'LOSS epoch {display_epoch}: {train_loss}')
 
             train_sampler.shuffle_episodes()
-            epoch_losses.append(np.mean(batch_losses))
-            batch_losses = []  # Reset batch losses
-
             pbar.write(f'STARTING VALIDATION')
+            val_loss = run_epoch(model, valid_dataloader, criterion, pbar, display_epoch, is_training=False)
+            validation_losses.append(val_loss)
+            pbar.write(f'Validation Loss epoch {display_epoch}: {val_loss}')
 
-            # Validation
-            sample = 0
-            model.eval()  # switch to evaluation mode
-
-            with torch.no_grad():
-                val_losses = []
-                for i, val_data in tqdm(enumerate(valid_dataloader, 0), leave=False):
-                    val_inputs, val_positions, val_labels = val_data
-
-                    current_batch_size = val_labels.shape[0]
-
-                    val_outputs = model(val_inputs, val_positions)
-
-                    val_loss = calculate_loss(criterion, val_outputs, val_labels)
-
-                    val_losses.append(val_loss.item())
-
-                    sample += current_batch_size
-                    pbar.set_description('[%d, %5d] validation loss: %.8f batches: %d' %
-                                     (display_epoch, sample, np.mean(val_losses[-1]), current_batch_size))
-                    pbar.update(1)
-
-                validation_loss = np.mean(val_losses)
-                validation_losses.append(validation_loss)
-                pbar.write(f'Validation Loss epoch {display_epoch}: {validation_loss}')
-
-            torch.save(model.state_dict(), MODEL_PATH + f'_{display_epoch}.pth')
-
-            details = {
-                "epoch_losses": epoch_losses,
-                "validation_losses": validation_losses,
-                "optimizer": optimizer.state_dict()
-            }
+            torch.save(model.state_dict(), f'{MODEL_PATH}_{display_epoch}.pth')
+            details = {"epoch_losses": epoch_losses, "validation_losses": validation_losses, "optimizer": optimizer.state_dict()}
             torch.save(details, DETAILS_PATH)
             scheduler.step()
 
-
     plt.plot(range(1, starting_epoch + EPOCHS_TO_TRAIN + 1), epoch_losses, label='Epoch Loss')
     plt.plot(range(1, starting_epoch + EPOCHS_TO_TRAIN + 1), validation_losses, label='Validation Epoch Loss')
-    fig.savefig('loss_figs/loss_' + MODEL_PATH.split('/')[1]  + "_" + MODEL_PATH.split('/')[2] +'.png')
+    fig.savefig(f'loss_figs/loss_{MODEL_PATH.split("/")[1]}_{MODEL_PATH.split("/")[2]}.png')
     plt.show(block=True)
 
+
 if __name__ == "__main__":
+    if not USE_LSTM or not USE_TRANSFORMERS:
+        raise ValueError("This network type should be used only when both use_transformers and use_lstm are true.")
+    os.makedirs(f'models/{TASK_TYPE.name.lower()}', exist_ok=True)
+    os.makedirs(f'loss_figs', exist_ok=True)
     train()
+
+
 

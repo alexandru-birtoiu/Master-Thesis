@@ -7,6 +7,12 @@ import torch
 from tqdm import tqdm
 import time
 from config import *
+import os
+
+
+os.makedirs(f'labels/{TASK_TYPE.name.lower()}', exist_ok=True)
+os.makedirs(f'images/{TASK_TYPE.name.lower()}', exist_ok=True)
+
 
 p.connect(p.GUI)
 
@@ -17,8 +23,6 @@ p.setPhysicsEngineParameter(maxNumCmdPer1ms=1000)
 p.resetDebugVisualizerCamera(cameraDistance=CAMERA_DISTANCE, cameraYaw=CAMERA_YAW, cameraPitch=CAMERA_PITCH,
                              cameraTargetPosition=CAMERA_TARGET_POSITION)
 p.setAdditionalSearchPath(pd.getDataPath())
-
-
 
 
 p.setTimeStep(TIME_STEP)
@@ -36,6 +40,7 @@ sample_dict = {}
 no_episodes = NO_EPISODES
 
 if GATHER_DATA_MORE:
+    #Continue gathering demonstrations
     sample_dict = torch.load(GATHER_MORE_LABEL_PATH)
 
     panda.episode = STARTING_EPISODES
@@ -70,7 +75,7 @@ while episode < no_episodes:
 
             labels, positions = panda.get_state()
             
-            panda.show_cube_pos(labels[-6:-3], labels[7:10])
+            panda.show_cube_pos(labels[-6:-3], labels[-3:])
 
             task_data = panda.task.get_task_type()
         
@@ -86,13 +91,13 @@ while episode < no_episodes:
         print(panda.task.state.name + ' ' + str(panda.task.is_moving()))
         print(panda.task.is_gripper_closed())
         if panda.task.is_moving():
-            panda.show_cube_pos(state[7:10], state[-3:])
+            panda.show_cube_pos(state[-3:6], state[-3:])
         time.sleep(0.05)
-        
-        
         
     panda.bullet_client.stopStateLogging(logId)
 
+
+# Save the labels
 torch.save(sample_dict,  get_label_path(episode))
 p.disconnect()
 

@@ -13,13 +13,11 @@ class TaskType(Enum):
     INSERT_CUBE = 2
     CUBE_DEPTH = 3
     TEDDY_BEAR = 4
-    # Add other tasks as needed
 
 class PredictionType(Enum):
     VELOCITY = 1
     POSITION = 2
     TARGET_POSITION = 3
-    # Add other tasks as needed
 
 class ImageType(Enum):
     RGB = 1
@@ -27,13 +25,14 @@ class ImageType(Enum):
     RGBD = 3
 
 # General configurations
-EPOCH: int = 1
+EPOCH: int = 10
 MODEL_TYPE: ModelType = ModelType.BIRDSEYE
-TASK_TYPE: TaskType = TaskType.CUBE_DEPTH
+TASK_TYPE: TaskType = TaskType.INSERT_CUBE
 PREDICTION_TYPE: PredictionType = PredictionType.TARGET_POSITION
-IMAGE_TYPE: ImageType = ImageType.RGBD
+IMAGE_TYPE: ImageType = ImageType.RGB
 
-SHOW_AUX_POS: int = 1
+# Shows auxiliary position of cube and end effector for debugging
+SHOW_AUX_POS: int = 0
 DEVICE: str = 'mps'
 
 # Training configurations
@@ -41,14 +40,17 @@ TRAIN_MODEL_MORE: int = 0
 STARTING_EPOCH: int = 0
 EPOCHS_TO_TRAIN: int = 10
 
+
+# Toggles task loss for insert cube task
 USE_TASK_LOSS = 1
 
 USE_TRANSFORMERS: bool = True
 
-USE_LSTM: bool = True
+USE_LSTM: bool = False
+
 LSTM_LAYERS: int = 1
 
-SEQUENCE_LENGTH:int = 1
+SEQUENCE_LENGTH:int = 4
 
 STEPS_SKIPED:int = 2
 SIMULATION_STEPS: int = 4
@@ -61,30 +63,34 @@ SCHEDULER_STEP_SIZE: int = 3
 BATCH_SIZE: int = 64
 
 NETWORK_OUTPUT_SIZE: int = 15 if PREDICTION_TYPE == PredictionType.VELOCITY else 11 + (3 if USE_TASK_LOSS else 0)
-NETWORK_IMAGE_LAYER_SIZE: int = 1 if IMAGE_TYPE == ImageType.D else 4 if IMAGE_TYPE == ImageType.RGB else 5
+NETWORK_IMAGE_LAYER_SIZE: int = 1 if IMAGE_TYPE == ImageType.D else 3 if IMAGE_TYPE == ImageType.RGB else 4
 
 # Data gathering configurations
 
-NO_EPISODES: int = 2000
+NO_EPISODES: int = 100
 GATHER_DATA: bool = True
 GATHER_DATA_MORE: int = False
 STARTING_EPISODES: int = 0
 
 # Image configurations
-IMAGE_SIZE: int = 128
+
+# Effective image size used for training and inference
 IMAGE_SIZE_TRAIN = 128
+
+# Captured image size
+IMAGE_SIZE: int = 128
 
 # Simulation parameters
 FPS: float = 240.0
 TIME_STEP: float = 1.0 / FPS
 
 WAIT_TIME_DROP: float = 0.25
-WAIT_TIME_GRASP: float = 0.04#0.025
+WAIT_TIME_GRASP: float = 0.04
 WAIT_TIME_OTHER: float = 0.1
 REACHED_TARGET_THRESHOLD: float = 0.01
 ROBOT_SPEED: float = 0.1
 
-# Camera configurations
+# Camera configuration for the GUI
 CAMERA_DISTANCE: float = 1.1
 CAMERA_YAW: int = 0
 CAMERA_PITCH: int = -30
@@ -95,7 +101,7 @@ MAX_CUBE_RANDOM: float = 0.07
 MAX_START_RANDOM_XZ: float = 0.01
 MAX_START_RANDOM_Y: float = 0.01
 
-# Gripper configurations
+# Gripper positions
 GRIPPER_OPEN: float = 0.04
 GRIPPER_CLOSE: float = 0.0
 
@@ -112,8 +118,10 @@ ROBOT_START_POSITION: np.ndarray = np.array([0, 0.3, -0.35])
 
 STARTING_JOINT_POSITIONS: list[float] = [1.678, -0.533, -0.047, -2.741, -0.029, 2.207, 0.869, 0.02, 0.02]
 RP: list[float] = STARTING_JOINT_POSITIONS
+PANDA_ORN = [-0.707107, 0.0, 0.0, 0.707107]
+START_STEPS_NETWORK = 300
 
-# Paths
+# Paths for models, images and label files, based on the current configuration settings
 def get_model_path() -> str:
     return f'models/{TASK_TYPE.name.lower()}/'    \
         + f'model_{MODEL_TYPE.name}_{PREDICTION_TYPE.name}_{IMAGE_SIZE_TRAIN}px_{IMAGE_TYPE.name}_{NO_EPISODES}_episodes_{STEPS_SKIPED}step'   \
