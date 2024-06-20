@@ -69,7 +69,7 @@ This script will automatically create the folders `images` and `labels` based on
 
 
 
-## Training the Model
+## Training a Model
 
 You can train any of the three types of network architectures provided:
 
@@ -89,7 +89,7 @@ All of these scripts will automatically create the `models` and `loss_figs` fold
 
 
 
-## Testing the Model
+## Testing a Model
 
 After training, you can test a specific epoch by setting the `EPOCH` in the configuration file and running the test script:
 
@@ -100,7 +100,7 @@ python test_trained_model.py
 This will test the model for one episode without performing any automatic evaluation.
 
 
-## Evaluating the Model
+## Evaluating a Model
 
 To evaluate a model, use the evaluation scripts specific to the task. For example, to evaluate the `INSERT_CUBE` task, run:
 
