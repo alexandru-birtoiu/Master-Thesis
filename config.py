@@ -67,7 +67,7 @@ NETWORK_IMAGE_LAYER_SIZE: int = 1 if IMAGE_TYPE == ImageType.D else 3 if IMAGE_T
 
 # Data gathering configurations
 
-NO_EPISODES: int = 100
+NO_EPISODES: int = 1000
 GATHER_DATA: bool = True
 GATHER_DATA_MORE: int = False
 STARTING_EPISODES: int = 0
